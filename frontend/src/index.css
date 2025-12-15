@@ -1,0 +1,219 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Smooth transitions */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #374151;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #6b7280;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Gradient text */
+.gradient-text {
+  @apply bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent;
+}
+
+/* Card hover effects */
+.hover-card {
+  @apply transition-all duration-300 hover:scale-[1.02] hover:shadow-xl;
+}
+
+/* Button animations */
+.btn-glow {
+  @apply relative overflow-hidden;
+}
+
+.btn-glow::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  transform: scale(0);
+  transition: transform 0.5s;
+}
+
+.btn-glow:hover::after {
+  transform: scale(1);
+}
+
+/* Loading animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.float-animation {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Shimmer effect */
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* Pulse animation */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.pulse-animation {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Note editor textarea */
+#note-content {
+  transition: all 0.2s ease;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+#note-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+#note-content::-webkit-scrollbar-track {
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+#note-content::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 4px;
+}
+
+#note-content::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+.dark #note-content {
+  scrollbar-color: #4b5563 #1f2937;
+}
+
+.dark #note-content::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+.dark #note-content::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+.dark #note-content::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Markdown preview styles */
+.markdown-preview h1 {
+  @apply text-3xl font-bold mb-4;
+}
+
+.markdown-preview h2 {
+  @apply text-2xl font-bold mb-3;
+}
+
+.markdown-preview h3 {
+  @apply text-xl font-bold mb-2;
+}
+
+.markdown-preview p {
+  @apply mb-4;
+}
+
+.markdown-preview ul {
+  @apply list-disc pl-5 mb-4;
+}
+
+.markdown-preview ol {
+  @apply list-decimal pl-5 mb-4;
+}
+
+.markdown-preview blockquote {
+  @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic my-4;
+}
+
+.markdown-preview code {
+  @apply bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm;
+}
+
+.markdown-preview pre {
+  @apply bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto my-4;
+}
+
+.markdown-preview a {
+  @apply text-blue-600 dark:text-blue-400 hover:underline;
+}
+
+/* Add to existing animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}

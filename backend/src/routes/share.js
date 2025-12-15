@@ -1,0 +1,251 @@
+const express = require('express');
+const { body, validationResult } = require('express-validator');
+const Note = require('../models/Note');
+const ShareKey = require('../models/ShareKey');
+const User = require('../models/User');
+const auth = require('../middleware/auth');
+
+const router = express.Router();
+
+// Share note with another user - IMPROVED VERSION
+router.post('/:noteId', auth, [
+  body('userId').notEmpty().withMessage('User ID is required'),
+  body('permission').isIn(['read', 'write']).withMessage('Permission must be "read" or "write"'),
+  body('encryptedKey').optional() // Make this optional for non-encrypted notes
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.log('Validation errors:', errors.array());
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { noteId } = req.params;
+    const { userId, permission, encryptedKey } = req.body;
+
+    console.log(`🔍 Attempting to share note ${noteId} with user ${userId}`);
+
+    // Check if note exists and user is owner
+    const note = await Note.findOne({
+      _id: noteId,
+      ownerId: req.user._id
+    });
+
+    if (!note) {
+      console.log(`❌ Note ${noteId} not found or user ${req.user._id} is not owner`);
+      return res.status(404).json({ 
+        error: 'Note not found or you are not the owner' 
+      });
+    }
+
+    // Check if target user exists
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      console.log(`❌ Target user ${userId} not found`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Don't allow sharing with yourself
+    if (userId === req.user._id.toString()) {
+      return res.status(400).json({ error: 'Cannot share note with yourself' });
+    }
+
+    // Check if already shared
+    const existingShareIndex = note.sharedWith.findIndex(
+      share => share.userId.toString() === userId
+    );
+
+    if (existingShareIndex !== -1) {
+      // Update existing share
+      note.sharedWith[existingShareIndex].permission = permission;
+      note.sharedWith[existingShareIndex].sharedAt = new Date();
+      console.log(`✅ Updated existing share for user ${userId}`);
+    } else {
+      // Add new share
+      note.sharedWith.push({
+        userId: userId,
+        permission: permission,
+        sharedAt: new Date(),
+        sharedBy: req.user._id
+      });
+      console.log(`✅ Added new share for user ${userId}`);
+    }
+
+    // Save share key if encrypted key provided (for encrypted notes)
+    if (encryptedKey && note.isEncrypted) {
+      await ShareKey.findOneAndUpdate(
+        {
+          noteId,
+          fromUserId: req.user._id,
+          toUserId: userId
+        },
+        {
+          encryptedKey,
+          permission,
+          noteId,
+          fromUserId: req.user._id,
+          toUserId: userId
+        },
+        { upsert: true, new: true }
+      );
+      console.log(`✅ Saved/updated share key for encrypted note`);
+    }
+
+    await note.save();
+
+    // Get user details for response
+    const sharedUserDetails = await User.findById(userId).select('username email _id');
+
+    res.json({
+      message: 'Note shared successfully',
+      sharedWith: note.sharedWith,
+      user: sharedUserDetails
+    });
+  } catch (error) {
+    console.error('❌ Share note error:', error);
+    res.status(500).json({ 
+      error: 'Server error while sharing note',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get shared notes for current user
+router.get('/shared-with-me', auth, async (req, res) => {
+  try {
+    const sharedNotes = await Note.find({
+      'sharedWith.userId': req.user._id
+    })
+    .populate('ownerId', 'username email')
+    .select('title tags ownerId sharedWith createdAt updatedAt isEncrypted')
+    .sort({ updatedAt: -1 });
+
+    // Transform the response to include only relevant share info
+    const transformedNotes = sharedNotes.map(note => {
+      const userShare = note.sharedWith.find(share => 
+        share.userId.toString() === req.user._id.toString()
+      );
+      
+      return {
+        _id: note._id,
+        title: note.title,
+        tags: note.tags,
+        owner: note.ownerId,
+        permission: userShare?.permission || 'read',
+        sharedAt: userShare?.sharedAt,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        isEncrypted: note.isEncrypted
+      };
+    });
+
+    res.json(transformedNotes);
+  } catch (error) {
+    console.error('Get shared notes error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get share key for a note
+router.get('/key/:noteId/:fromUserId', auth, async (req, res) => {
+  try {
+    const { noteId, fromUserId } = req.params;
+
+    const shareKey = await ShareKey.findOne({
+      noteId,
+      fromUserId,
+      toUserId: req.user._id
+    });
+
+    if (!shareKey) {
+      return res.status(404).json({ error: 'Share key not found' });
+    }
+
+    res.json({
+      encryptedKey: shareKey.encryptedKey,
+      permission: shareKey.permission
+    });
+  } catch (error) {
+    console.error('Get share key error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Remove share
+router.delete('/:noteId/:userId', auth, async (req, res) => {
+  try {
+    const { noteId, userId } = req.params;
+
+    console.log(`🔍 Attempting to remove share of note ${noteId} with user ${userId}`);
+
+    const note = await Note.findOne({
+      _id: noteId,
+      ownerId: req.user._id
+    });
+
+    if (!note) {
+      return res.status(404).json({ 
+        error: 'Note not found or you are not the owner' 
+      });
+    }
+
+    // Check if share exists
+    const shareExists = note.sharedWith.some(
+      share => share.userId.toString() === userId
+    );
+
+    if (!shareExists) {
+      return res.status(404).json({ error: 'Share not found' });
+    }
+
+    // Remove from sharedWith array
+    note.sharedWith = note.sharedWith.filter(
+      share => share.userId.toString() !== userId
+    );
+
+    // Delete share key if it exists
+    await ShareKey.findOneAndDelete({
+      noteId,
+      fromUserId: req.user._id,
+      toUserId: userId
+    });
+
+    await note.save();
+
+    console.log(`✅ Successfully removed share of note ${noteId} with user ${userId}`);
+
+    res.json({ 
+      message: 'Share removed successfully',
+      noteId,
+      removedUserId: userId
+    });
+  } catch (error) {
+    console.error('Remove share error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get all shares for a note (who it's shared with)
+router.get('/:noteId/shares', auth, async (req, res) => {
+  try {
+    const { noteId } = req.params;
+
+    const note = await Note.findOne({
+      _id: noteId,
+      ownerId: req.user._id
+    }).populate('sharedWith.userId', 'username email _id');
+
+    if (!note) {
+      return res.status(404).json({ 
+        error: 'Note not found or you are not the owner' 
+      });
+    }
+
+    res.json(note.sharedWith);
+  } catch (error) {
+    console.error('Get shares error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
