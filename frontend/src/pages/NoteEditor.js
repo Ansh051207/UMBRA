@@ -1,32 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  FaSave, FaTimes, FaHistory, FaLock, FaKey, 
+import {
+  FaSave, FaTimes, FaHistory, FaLock, FaKey,
   FaBold, FaItalic, FaUnderline, FaListUl, FaListOl,
   FaHeading, FaCode, FaLink, FaImage, FaQuoteLeft,
-  FaEye, FaEyeSlash, FaExpand, FaCompress, FaBug,
-  FaStickyNote, FaInfoCircle, FaExclamationTriangle,
-  FaDatabase, FaServer, FaNetworkWired, FaList,
-  FaCheckCircle, FaExclamationCircle,
-  FaUserPlus, FaShareAlt, FaUserFriends, FaSearch, 
-  FaUserCheck, FaUserTimes, FaEnvelope, FaSpinner,
-  FaTimesCircle
+  FaExpand, FaCompress,
+  FaShareAlt, FaUserFriends, FaSearch,
+  FaUserPlus, FaUserCheck, FaUserTimes, FaSpinner,
+  FaTimesCircle, FaCheckCircle, FaEdit, FaEye, FaShieldAlt
 } from 'react-icons/fa';
 import api from '../services/api';
 import { useCrypto } from '../contexts/CryptoContext';
 import { useAuth } from '../contexts/AuthContext';
-import { encryptNote, decryptNote } from '../utils/cryptoUtils';
+import { encryptNote, decryptNote, importEncryptedData } from '../utils/cryptoUtils';
 import axios from 'axios';
 
 const NoteEditor = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // CRITICAL FIX: Handle the case where id is undefined
   // If id is undefined, we're definitely creating a new note
   const isNewNote = id === 'new' || id === undefined;
-  
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tags, setTags] = useState('');
@@ -37,14 +34,11 @@ const NoteEditor = () => {
   const [versions, setVersions] = useState([]);
   const [isAutoResizing, setIsAutoResizing] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [debugInfo, setDebugInfo] = useState(null);
-  const [apiResponse, setApiResponse] = useState(null);
-  const [apiError, setApiError] = useState(null);
-  const [backendStatus, setBackendStatus] = useState('unknown');
-  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
-  const [password, setPassword] = useState('');
-  
+  const [canEdit, setCanEdit] = useState(isNewNote); // New state to control editability
+  const [sessionNoteKey, setSessionNoteKey] = useState(null); // Key used for current note encryption/decryption
+
+  const [isOwner, setIsOwner] = useState(false);
+  const showPreview = true;
   // Sharing states
   const [showShareModal, setShowShareModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,11 +49,11 @@ const NoteEditor = () => {
   const [sharingError, setSharingError] = useState('');
   const [sharingSuccess, setSharingSuccess] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
-  
+
   const textareaRef = useRef(null);
   const editorRef = useRef(null);
   const searchTimeoutRef = useRef(null);
-  const { masterKey, encrypt, decrypt, deriveKeyFromPassword } = useCrypto();
+  const { masterKey, setMasterKey, encrypt, decrypt, deriveKeyFromPassword, encryptWithPublicKey, decryptWithPrivateKey, privateKey, setPrivateKey } = useCrypto();
   const { user, isAuthenticated, logout, loading: authLoading } = useAuth();
 
   // ========== CRITICAL DEBUGGING ==========
@@ -73,13 +67,13 @@ const NoteEditor = () => {
     console.log('useLocation() pathname:', location.pathname);
     console.log('useLocation() search:', location.search);
     console.log('useLocation() state:', location.state);
-    
+
     // If id is undefined but URL is /note/new, fix it manually
     if (id === undefined && window.location.pathname === '/note/new') {
       console.log('⚠️ FIXING: id is undefined but URL is /note/new');
       console.log('✅ Manually treating as new note');
     }
-    
+
     // Check route params more carefully
     const pathParts = window.location.pathname.split('/');
     console.log('Path parts:', pathParts);
@@ -92,26 +86,26 @@ const NoteEditor = () => {
     if (id === undefined) {
       console.log('⚠️ NoteEditor: id is undefined from useParams()');
       console.log('🔍 Checking current URL:', window.location.pathname);
-      
+
       const pathParts = window.location.pathname.split('/');
       const lastPart = pathParts[pathParts.length - 1];
-      
+
       console.log('Last part of URL:', lastPart);
-      
+
       // If we're at /note (without an ID), redirect to /note/new
       if (window.location.pathname === '/note') {
         console.log('🔍 Found /note without ID, redirecting to /note/new');
         navigate('/note/new', { state: location.state || {} });
         return;
       }
-      
+
       // If we're at /note/ but the ID is empty
       if (lastPart === '' && pathParts[pathParts.length - 2] === 'note') {
         console.log('🔍 Found /note/ (trailing slash), redirecting to /note/new');
         navigate('/note/new', { state: location.state || {} });
         return;
       }
-      
+
       // If we're at /note/new but id is undefined (shouldn't happen with proper routing)
       if (window.location.pathname === '/note/new') {
         console.log('✅ Already at /note/new, continuing with new note creation');
@@ -125,22 +119,22 @@ const NoteEditor = () => {
     console.log('🔍 NoteEditor: Checking for prefilled data...');
     console.log('🔍 isNewNote:', isNewNote);
     console.log('🔍 location.state:', location.state);
-    
+
     if (isNewNote) {
       if (location.state) {
         console.log('🔍 NoteEditor: Received prefilled data from Dashboard:', location.state);
-        
+
         // Only set title if it's not already set
         if (location.state.prefillTitle && !title) {
           console.log('🔍 Setting title to:', location.state.prefillTitle);
           setTitle(location.state.prefillTitle);
         }
-        
+
         if (location.state.prefillTags && location.state.prefillTags.length > 0 && !tags) {
           console.log('🔍 Setting tags to:', location.state.prefillTags);
           setTags(location.state.prefillTags.join(', '));
         }
-        
+
         // Handle encryption if needed
         if (location.state.shouldEncrypt && !masterKey && location.state.encryptionPassword) {
           console.log('🔍 Note should be encrypted, setting master key...');
@@ -169,7 +163,7 @@ const NoteEditor = () => {
     console.log('  Note ID from URL:', id);
     console.log('  Full URL:', window.location.href);
     console.log('  Location state:', location.state);
-    
+
     // Check if we're on the wrong URL
     if (id !== 'new' && id !== undefined && !/^[0-9a-fA-F]{24}$/.test(id)) {
       console.error('❌ ERROR: Invalid note ID in URL! Expected "new" or valid ObjectId');
@@ -190,15 +184,15 @@ const NoteEditor = () => {
     console.log('🔍 NoteEditor: Is new note?', isNewNote);
     console.log('🔍 NoteEditor: Note ID type:', typeof id);
     console.log('🔍 NoteEditor: Note ID value:', JSON.stringify(id));
-    
+
     // Check axios headers
     console.log('🔍 NoteEditor: Axios headers:', axios.defaults.headers.common);
-    
+
     // Update debug info
-    updateDebugInfo();
-    
+
+
     // Check backend status
-    checkBackendStatus();
+    // checkBackendStatus(); // Removed as part of debug panel removal
   }, [isAuthenticated, user, authLoading, id, isNewNote]);
 
   useEffect(() => {
@@ -209,7 +203,7 @@ const NoteEditor = () => {
     console.log('isNewNote:', isNewNote);
     console.log('Note ID:', id);
     console.log('Note ID type:', typeof id);
-    
+
     // Wait for auth to finish loading
     if (authLoading) {
       console.log('🔍 NoteEditor: Auth still loading, waiting...');
@@ -229,7 +223,7 @@ const NoteEditor = () => {
       id: user?._id,
       email: user?.email
     });
-    
+
     if (!isNewNote) {
       fetchNote();
     } else {
@@ -250,246 +244,11 @@ const NoteEditor = () => {
     resizeTextarea();
   }, [content]);
 
-  // Check backend status
-  const checkBackendStatus = async () => {
-    try {
-      // Try to ping the backend
-      const response = await axios.get('http://localhost:5000/', {
-        timeout: 2000
-      });
-      setBackendStatus('connected');
-      console.log('✅ Backend is connected');
-    } catch (error) {
-      setBackendStatus('disconnected');
-      console.warn('⚠️ Backend connection check failed:', error.message);
-    }
-  };
 
-  // Handle password prompt for encryption
-  const handlePasswordSubmit = () => {
-    if (!password.trim()) {
-      alert('Please enter a password');
-      return;
-    }
-    
-    try {
-      const derivedKey = deriveKeyFromPassword(password, 'master-salt');
-      // In a real app, you would set this in the crypto context
-      console.log('🔍 Password set for encryption');
-      setShowPasswordPrompt(false);
-      setPassword('');
-      alert('Encryption password set. Your note will be encrypted when saved.');
-    } catch (error) {
-      console.error('Failed to set encryption password:', error);
-      alert('Failed to set encryption password');
-    }
-  };
 
-  // Debug function to check note ID
-  const debugNoteId = () => {
-    const info = {
-      idFromParams: id,
-      type: typeof id,
-      length: id?.length,
-      isNewNote: id === 'new' || id === undefined,
-      fullURL: window.location.href,
-      pathname: window.location.pathname,
-      isValidObjectId: id && id !== 'new' && id !== undefined ? /^[0-9a-fA-F]{24}$/.test(id) : false
-    };
-    
-    console.log('🔍 Debug Note ID:', info);
-    
-    alert(`Note ID Debug:\n\n` +
-          `ID from useParams(): "${id}"\n` +
-          `Type: ${typeof id}\n` +
-          `Length: ${id?.length}\n` +
-          `Is new note? ${info.isNewNote ? '✅ Yes' : '❌ No'}\n` +
-          `Valid ObjectId? ${info.isValidObjectId ? '✅ Yes' : '❌ No'}\n` +
-          `Full URL: ${window.location.href}\n` +
-          `Pathname: ${window.location.pathname}\n` +
-          `Expected note ID from path: ${window.location.pathname.split('/')[2]}`);
-  };
 
-  // Test API call directly (bypassing the api service)
-  const testDirectApiCall = async () => {
-    try {
-      setApiError(null);
-      setApiResponse(null);
-      
-      const token = localStorage.getItem('token');
-      console.log('🔍 Direct API Test:');
-      console.log('Token:', token ? `${token.substring(0, 20)}...` : 'Missing');
-      console.log('Note ID:', id);
-      console.log('User ID:', user?._id);
-      
-      if (!token) {
-        throw new Error('No token found in localStorage');
-      }
-      
-      // Better validation for note ID
-      if (!id || id === 'new' || id === 'undefined' || id === 'null' || id === undefined) {
-        throw new Error(`Cannot test API: This is a new note (ID: "${id}"). Create a note first, then edit it.`);
-      }
-      
-      // Check if ID looks like a MongoDB ObjectId (24 hex characters)
-      const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
-      if (!isValidObjectId) {
-        throw new Error(`Invalid note ID format: "${id}". Expected 24-character hex string. Visit /notes to see your notes.`);
-      }
-      
-      console.log('🔍 Making direct API call to:', `http://localhost:5000/api/notes/${id}`);
-      
-      const response = await axios.get(`http://localhost:5000/api/notes/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 5000
-      });
-      
-      console.log('✅ Direct API Success:', response.data);
-      setApiResponse(response.data);
-      
-      alert(`✅ Direct API call successful!\n\nTitle: ${response.data.title}\nID: ${response.data._id}\nOwner: ${response.data.ownerId}`);
-      
-      return response.data;
-    } catch (error) {
-      const errorDetails = {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message,
-        code: error.code
-      };
-      
-      console.error('❌ Direct API Error:', errorDetails);
-      setApiError(errorDetails);
-      
-      let errorMessage = `Direct API test failed:\n\n`;
-      errorMessage += `Status: ${errorDetails.status || 'No response'}\n`;
-      errorMessage += `Message: ${errorDetails.message}\n`;
-      
-      if (errorDetails.data) {
-        errorMessage += `Error: ${JSON.stringify(errorDetails.data, null, 2)}\n`;
-      }
-      
-      if (errorDetails.status === 404) {
-        errorMessage += `\n💡 Tip: This note doesn't exist or you don't have access. Visit /notes to see your notes.`;
-      } else if (errorDetails.code === 'ECONNREFUSED') {
-        errorMessage += `\n💡 Tip: Backend server is not running on port 5000. Start it with: cd backend && npm start`;
-      }
-      
-      alert(errorMessage);
-      
-      return null;
-    }
-  };
 
-  // Test backend connectivity
-  const testBackendHealth = async () => {
-    try {
-      console.log('🔍 Testing backend health...');
-      
-      // Try multiple endpoints to see what works
-      const endpoints = [
-        { url: 'http://localhost:5000/', name: 'Root' },
-        { url: 'http://localhost:5000/api/auth/me', name: 'Auth Check' },
-        { url: 'http://localhost:5000/api/notes', name: 'Notes List' }
-      ];
-      
-      let success = false;
-      let errorMessage = '';
-      let workingEndpoint = null;
-      
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`Trying ${endpoint.name} (${endpoint.url})...`);
-          const response = await axios.get(endpoint.url, {
-            timeout: 2000,
-            headers: endpoint.url.includes('/auth/me') && localStorage.getItem('token') ? {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            } : {}
-          });
-          console.log(`✅ ${endpoint.name} responded:`, response.status);
-          success = true;
-          workingEndpoint = endpoint;
-          break;
-        } catch (err) {
-          errorMessage = err.message;
-          console.log(`❌ ${endpoint.name} failed:`, err.message);
-          
-          // If it's a 401, backend is running but token is invalid
-          if (err.response?.status === 401) {
-            success = true;
-            workingEndpoint = endpoint;
-            errorMessage = 'Backend is running but token is invalid/expired';
-            break;
-          }
-        }
-      }
-      
-      if (success) {
-        setBackendStatus('connected');
-        if (workingEndpoint) {
-          alert(`✅ Backend is running!\n\nEndpoint: ${workingEndpoint.name}\nURL: ${workingEndpoint.url}\n\nStatus: Connected`);
-        }
-      } else {
-        setBackendStatus('disconnected');
-        throw new Error(`All endpoints failed. Last error: ${errorMessage}`);
-      }
-    } catch (error) {
-      console.error('❌ Backend health check failed:', error.message);
-      setBackendStatus('disconnected');
-      alert(`❌ Cannot connect to backend:\n\n${error.message}\n\nMake sure:\n1. Backend server is running on port 5000\n2. Run: cd backend && npm start\n3. Check if port 5000 is available`);
-    }
-  };
 
-  // List all notes to see what's available
-  const listAllNotes = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        alert('❌ No token found. Please log in first.');
-        return;
-      }
-      
-      console.log('🔍 Listing all notes...');
-      const response = await axios.get('http://localhost:5000/api/notes', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        timeout: 5000
-      });
-      
-      console.log('✅ Notes list:', response.data);
-      
-      if (response.data.length === 0) {
-        alert('📝 No notes found. Create a new note first!');
-        return;
-      }
-      
-      let message = `📚 Found ${response.data.length} notes:\n\n`;
-      response.data.forEach((note, index) => {
-        message += `${index + 1}. ${note.title || 'Untitled'} \n`;
-        message += `   ID: ${note._id}\n`;
-        message += `   Created: ${new Date(note.createdAt).toLocaleDateString()}\n`;
-        message += `   Tags: ${note.tags?.join(', ') || 'None'}\n\n`;
-      });
-      
-      message += `\n💡 Tip: Copy a note ID and visit /note/[id] to edit it.`;
-      
-      alert(message);
-    } catch (error) {
-      console.error('❌ Failed to list notes:', error);
-      let errorMsg = `Failed to list notes:\n\n${error.message}`;
-      if (error.response?.status === 401) {
-        errorMsg += '\n\nYour session may have expired. Please log in again.';
-      } else if (error.code === 'ECONNREFUSED') {
-        errorMsg += '\n\nBackend server is not running. Start it with: cd backend && npm start';
-      }
-      alert(errorMsg);
-    }
-  };
 
   const fetchNote = async () => {
     try {
@@ -498,15 +257,15 @@ const NoteEditor = () => {
         setLoading(false);
         return;
       }
-      
+
       setLoading(true);
       setError('');
-      setApiError(null);
-      setApiResponse(null);
-      
+      // setApiError(null); // Removed as part of debug panel removal
+      // setApiResponse(null); // Removed as part of debug panel removal
+
       console.log('🔍 NoteEditor: Fetching note with ID:', id);
       console.log('🔍 NoteEditor: User ID:', user?._id);
-      
+
       // Check if ID is literally "undefined" string
       if (id === "undefined") {
         const errorMsg = 'Invalid note URL. The note ID is missing. Go to /notes to see your notes or /note/new to create one.';
@@ -515,7 +274,7 @@ const NoteEditor = () => {
         setLoading(false);
         return;
       }
-      
+
       // Validate ID format
       if (!id || !/^[0-9a-fA-F]{24}$/.test(id)) {
         const errorMsg = `Invalid note ID format: "${id}". Expected 24-character hex string. Visit /notes to see your notes.`;
@@ -523,15 +282,15 @@ const NoteEditor = () => {
         setError(errorMsg);
         throw new Error(errorMsg);
       }
-      
+
       console.log('🔍 NoteEditor: Using api.getNote() service...');
-      
+
       const response = await api.getNote(id);
       console.log('🔍 NoteEditor: Note fetched successfully:', response.data);
-      
+
       const note = response.data;
-      setApiResponse(note);
-      
+      // setApiResponse(note); // Removed as part of debug panel removal
+
       // Check if note is actually returned
       if (!note) {
         const errorMsg = 'Note not found in response (null/undefined)';
@@ -539,7 +298,7 @@ const NoteEditor = () => {
         setError(errorMsg);
         throw new Error(errorMsg);
       }
-      
+
       console.log('🔍 NoteEditor: Note details:', {
         id: note._id,
         title: note.title,
@@ -548,29 +307,118 @@ const NoteEditor = () => {
         isEncrypted: note.isEncrypted,
         tagsCount: note.tags?.length || 0
       });
-      
+
       setTitle(note.title || '');
       setTags(note.tags?.join(', ') || '');
-      
+
+      const ownerIdStr = String(note.ownerId?._id || note.ownerId || '');
+      const userIdStr = String(user?._id || user?.id || '');
+      const isNoteOwner = userIdStr && ownerIdStr === userIdStr;
+      setIsOwner(isNoteOwner);
+
       // Decrypt content if we have the master key
       if (masterKey && note.isEncrypted && note.encryptionMetadata) {
+
         try {
           console.log('🔍 NoteEditor: Attempting to decrypt note content');
+          let noteKey = masterKey;
+
+          // If this is a shared note (and we are not the owner), we need to get the specific note key
+          console.log('🔍 NoteEditor: Ownership check:', {
+            isOwner: isNoteOwner,
+            ownerIdStr,
+            userIdStr
+          });
+
+          if (!isNoteOwner) {
+            console.log('🔍 Shared note detected. Trying to retrieve share key...');
+            try {
+              // 1. Check localStorage first (cached from Dashboard)
+              const cachedKeyData = localStorage.getItem(`share_key_${id}`);
+              if (cachedKeyData) {
+                try {
+                  const { encryptedKey } = JSON.parse(cachedKeyData);
+                  console.log('🔍 Found cached share key, decrypting...');
+
+                  let privateKeyPEM = privateKey;
+                  if (!privateKeyPEM) {
+                    throw new Error('Private key not unlocked. Please log in again.');
+                  }
+
+                  noteKey = await decryptWithPrivateKey(encryptedKey, privateKeyPEM);
+                  console.log('✅ Shared note key decrypted from cache');
+                } catch (cacheErr) {
+                  console.warn('⚠️ Cached key decryption failed:', cacheErr.message);
+                  // Continue to fetch from API
+                }
+              }
+
+              // 2. If no key yet, fetch from API
+              if (!noteKey || noteKey === masterKey) {
+                let privateKeyPEM = privateKey;
+
+                if (!privateKeyPEM) {
+                  // Decrypt Private Key if password available
+                  throw new Error('Encryption keys are required. Please log in again.');
+                }
+
+                console.log('🔍 Fetching share key from API...');
+                let shareKeyRes;
+                try {
+                  const ownerId = note.ownerId?._id || note.ownerId;
+                  shareKeyRes = await api.getShareKey(id, ownerId);
+                } catch (firstErr) {
+                  console.warn('⚠️ Fetch with ownerId failed, trying "any":', firstErr.message);
+                  shareKeyRes = await api.getShareKey(id, 'any');
+                }
+
+                console.log('🔍 Decrypting share key from API...');
+                noteKey = await decryptWithPrivateKey(shareKeyRes.data.encryptedKey, privateKeyPEM);
+                console.log('✅ Shared note key decrypted from API');
+              }
+            } catch (shareErr) {
+              console.error('❌ Failed to retrieve shared note key:', shareErr);
+              throw new Error('Failed to decrypt shared note. Your encryption keys might be missing.');
+            }
+          }
+
           const decryptedContent = decryptNote(
             note.content,
-            masterKey,
+            noteKey,
             note.encryptionMetadata.iv
           );
           setContent(decryptedContent);
-          console.log('🔍 NoteEditor: Note decrypted successfully');
+          setSessionNoteKey(noteKey); // Store the key for later use (like sharing)
+          console.log('✅ NoteEditor: Note decrypted successfully');
         } catch (decryptError) {
           console.error('🔍 NoteEditor: Decryption failed:', decryptError);
-          setError('Failed to decrypt note. Check your master password.');
-          setContent('[Encrypted - Enter master password to view]');
+          setError('Decryption Error: ' + decryptError.message);
+
+          // If encryption keys are missing, alert user
+          if (decryptError.message.includes('Encryption keys are required')) {
+            setError('Encryption required. Please log in again to restore your keys.');
+          }
+
+          // If we are the owner but decryption failed, maybe the masterKey is wrong
+          if (isNoteOwner) {
+            setContent(`[Decryption Failed] This note was encrypted with a different password or your master key is incorrect.`);
+          } else {
+            setContent('[Encrypted - Shared note decryption failed. Your encryption keys might be missing or incorrect.]');
+          }
         }
+      } else if (note.isEncrypted && !masterKey) {
+        // Encrypted but no master key
+        setContent('[Note is encrypted. Encryption keys are missing. Please log in again.]');
       } else {
         setContent(note.content || '');
       }
+
+      // Check if user has permission to edit
+      const currentUserId = user?._id || user?.id;
+      const userShare = note.sharedWith?.find(s => String(s.userId?._id || s.userId) === String(currentUserId));
+      const hasWritePermission = isNoteOwner || (userShare && userShare.permission === 'write');
+      setCanEdit(hasWritePermission);
+      console.log('🔍 NoteEditor: Permissions:', { isNoteOwner, hasWritePermission, currentUserId });
     } catch (error) {
       console.error('🔍 NoteEditor: Failed to fetch note:', {
         message: error.message,
@@ -584,14 +432,14 @@ const NoteEditor = () => {
           headers: error.config?.headers
         }
       });
-      
-      setApiError({
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message
-      });
-      
+
+      // setApiError({ // Removed as part of debug panel removal
+      //   status: error.response?.status,
+      //   statusText: error.response?.statusText,
+      //   data: error.response?.data,
+      //   message: error.message
+      // });
+
       if (error.response?.status === 401) {
         setError('Session expired. Please log in again.');
         logout();
@@ -617,98 +465,37 @@ const NoteEditor = () => {
   const fetchVersions = async () => {
     try {
       const response = await api.getNoteVersions(id);
-      setVersions(response.data.versions);
+      let noteVersions = response.data.versions;
+
+      // Decrypt versions if note is encrypted
+      if (sessionNoteKey) {
+        console.log('🔍 Decrypting note versions...');
+        noteVersions = noteVersions.map(version => {
+          try {
+            if (version.isEncrypted && version.encryptionMetadata?.iv) {
+              const decrypted = decryptNote(
+                version.content,
+                sessionNoteKey,
+                version.encryptionMetadata.iv
+              );
+              return { ...version, content: decrypted, decryptionFailed: false };
+            }
+            return { ...version, decryptionFailed: false };
+          } catch (err) {
+            console.warn(`⚠️ Failed to decrypt version ${version.version}:`, err.message);
+            return { ...version, decryptionFailed: true };
+          }
+        });
+      }
+
+      setVersions(noteVersions);
       setShowHistory(true);
     } catch (error) {
       console.error('Failed to fetch versions:', error);
     }
   };
 
-  const updateDebugInfo = async () => {
-    const token = localStorage.getItem('token');
-    const info = {
-      timestamp: new Date().toISOString(),
-      authLoading,
-      isAuthenticated,
-      user: user ? { 
-        email: user.email, 
-        id: user._id || user.id,
-        hasId: !!(user._id || user.id)
-      } : null,
-      hasToken: !!token,
-      tokenLength: token?.length || 0,
-      tokenPreview: token ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}` : null,
-      masterKey: !!masterKey,
-      noteId: id,
-      isNewNote,
-      isValidObjectId: id && id !== 'new' && id !== undefined ? /^[0-9a-fA-F]{24}$/.test(id) : false,
-      backendStatus,
-      apiResponse: apiResponse ? {
-        hasData: true,
-        id: apiResponse._id,
-        title: apiResponse.title,
-        ownerId: apiResponse.ownerId
-      } : null,
-      apiError: apiError ? {
-        status: apiError.status,
-        message: apiError.message
-      } : null
-    };
-    
-    setDebugInfo(info);
-    console.log('🔍 Debug Info Updated:', info);
-  };
 
-  const debugAuth = async () => {
-    console.log('=== DEBUG AUTHENTICATION ===');
-    console.log('1. LocalStorage token:', localStorage.getItem('token'));
-    console.log('2. isAuthenticated:', isAuthenticated);
-    console.log('3. User:', user);
-    console.log('4. User ID:', user?._id);
-    console.log('5. Axios headers:', axios.defaults.headers.common);
-    console.log('6. Auth loading:', authLoading);
-    
-    const token = localStorage.getItem('token');
-    if (!token) {
-      console.log('ERROR: No token in localStorage');
-      alert('❌ No token found. Please log in again.');
-      return;
-    }
-    
-    try {
-      console.log('Testing token with backend...');
-      const response = await axios.get('http://localhost:5000/api/auth/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      console.log('✅ Token is valid:', response.data);
-      alert('✅ Token is valid!\n\nUser: ' + response.data.user.email + '\nID: ' + response.data.user._id);
-    } catch (error) {
-      console.error('❌ Token test failed:', {
-        status: error.response?.status,
-        message: error.message,
-        data: error.response?.data
-      });
-      alert('❌ Token validation failed: ' + (error.response?.data?.error || error.message));
-    }
-  };
-
-  // ========== FIX: Handle navigation from Dashboard ==========
-  const handleCreateNewNote = () => {
-    console.log('🔍 Creating new note manually...');
-    console.log('🔍 Current URL:', window.location.href);
-    console.log('🔍 Current pathname:', window.location.pathname);
-    
-    // Force navigation to /note/new with state
-    navigate('/note/new', { 
-      state: location.state || {},
-      replace: true // Replace current history entry
-    });
-  };
-
-  // ========== SHARING FUNCTIONS ==========
-  
   // MISSING FUNCTION: Add this to fix the error
   const openShareModal = () => {
     console.log('🔍 Opening share modal for note:', id);
@@ -718,7 +505,7 @@ const NoteEditor = () => {
     setSelectedUsers([]);
     setSharingError('');
     setSharingSuccess('');
-    
+
     // Fetch shared users when opening modal
     if (!isNewNote && id) {
       fetchSharedWith();
@@ -726,26 +513,27 @@ const NoteEditor = () => {
   };
 
   const searchUsers = async (query) => {
-    if (query.length < 2) {
+    const queryTrimmed = query.trim();
+    if (queryTrimmed.length < 2) {
       setSearchResults([]);
       return;
     }
-    
+
     setSearchLoading(true);
     setSharingError('');
-    
+
     try {
-      console.log('🔍 Searching users with query:', query);
-      
-      const response = await api.searchUsers(query);
+      console.log('🔍 Searching users with query:', queryTrimmed);
+
+      const response = await api.searchUsers(queryTrimmed);
       console.log('✅ Search results:', response.data);
-      
+
       // Filter out users already selected or already shared with
-      const filteredResults = response.data.filter(user => 
+      const filteredResults = response.data.filter(user =>
         !selectedUsers.some(selected => selected._id === user._id) &&
         !sharedWith.some(shared => shared.userId === user._id)
       );
-      
+
       setSearchResults(filteredResults);
     } catch (error) {
       console.error('❌ User search failed:', error);
@@ -759,12 +547,12 @@ const NoteEditor = () => {
   const handleSearchChange = (e) => {
     const query = e.target.value;
     setSearchQuery(query);
-    
+
     // Clear previous timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-    
+
     // Debounce search (wait 500ms after user stops typing)
     searchTimeoutRef.current = setTimeout(() => {
       searchUsers(query);
@@ -788,14 +576,14 @@ const NoteEditor = () => {
     try {
       setShareLoading(true);
       setSharingError('');
-      
+
       const response = await api.removeShare(id, userId);
       console.log('✅ Share removed:', response.data);
-      
+
       // Update local state
       setSharedWith(sharedWith.filter(share => share.userId !== userId));
       setSharingSuccess('User removed from shared list');
-      
+
       setTimeout(() => setSharingSuccess(''), 3000);
     } catch (error) {
       console.error('❌ Remove share failed:', error);
@@ -810,39 +598,68 @@ const NoteEditor = () => {
       setSharingError('Please select at least one user to share with');
       return;
     }
-    
+
     if (!id || isNewNote) {
       setSharingError('Please save the note first before sharing');
       return;
     }
-    
+
     setShareLoading(true);
     setSharingError('');
     setSharingSuccess('');
-    
+
     try {
       console.log('🔍 Sharing note with users:', selectedUsers);
-      
+
       // For each selected user, share the note
       const sharePromises = selectedUsers.map(async (user) => {
         const shareData = {
           userId: user._id,
-          permission: 'read' // or 'write' based on your UI
+          permission: 'read'
         };
-        
-        // If note is encrypted, you might need to add encryptedKey here
-        if (masterKey && content) {
-          // You'll need to encrypt the key for the target user
-          // This depends on your encryption implementation
-          // shareData.encryptedKey = encryptedKeyForUser;
+
+        // If encryption is enabled, encrypt the key for the recipient
+        if (masterKey) {
+          if (!user.publicKey) {
+            console.warn(`User ${user.username} has no public key, cannot share encrypted note securely.`);
+            throw new Error(`User ${user.username} has not set up encryption keys. Cannot share.`);
+          }
+
+          try {
+            // 1. Get the correct encryption key
+            // If the note is already encrypted, we should share the key used to encrypt it.
+            // In this app, we use the user's masterKey for their own notes.
+            if (!masterKey) {
+              throw new Error('Encryption keys are missing. Please log in again.');
+            }
+
+            if (!user.publicKey || user.publicKey.length < 50) {
+              throw new Error(`User ${user.username} has not set up valid encryption keys yet.`);
+            }
+
+            console.log(`🔐 Encrypting key for user ${user.username}...`);
+
+            // 2. Encrypt the sessionNoteKey (or masterKey if owner) with the recipient's public key
+            // For owner, sessionNoteKey might be null before first save, so use masterKey
+            const keyToShare = sessionNoteKey || masterKey;
+            const encryptedKey = await encryptWithPublicKey(keyToShare, user.publicKey);
+
+            console.log('✅ Key encrypted, sending share request...');
+
+            shareData.encryptedKey = encryptedKey;
+            console.log(`✅ Key encrypted for ${user.username}`);
+          } catch (err) {
+            console.error(`Failed to encrypt key for ${user.username}:`, err);
+            throw new Error(`Failed to encrypt key for ${user.username}`);
+          }
         }
-        
+
         return api.shareNote(id, shareData);
       });
-      
+
       const results = await Promise.all(sharePromises);
       console.log('✅ Share results:', results);
-      
+
       // Add to sharedWith list
       const newSharedUsers = selectedUsers.map((user, index) => ({
         userId: user._id,
@@ -854,24 +671,24 @@ const NoteEditor = () => {
           email: user.email
         }
       }));
-      
+
       setSharedWith([...sharedWith, ...newSharedUsers]);
       setSelectedUsers([]);
       setSearchQuery('');
       setSharingSuccess(`Successfully shared with ${selectedUsers.length} user(s)`);
-      
+
       setTimeout(() => {
         setSharingSuccess('');
         setShowShareModal(false);
       }, 3000);
-      
+
     } catch (error) {
       console.error('❌ Share failed:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status
       });
-      
+
       const errorMsg = error.response?.data?.error || error.message;
       setSharingError(`Failed to share note: ${errorMsg}`);
     } finally {
@@ -881,7 +698,7 @@ const NoteEditor = () => {
 
   const fetchSharedWith = async () => {
     if (!id || isNewNote) return;
-    
+
     try {
       console.log('🔍 Fetching shared users for note:', id);
       const response = await api.getNoteSharedWith(id);
@@ -903,47 +720,6 @@ const NoteEditor = () => {
     }
   }, [id, isNewNote, isAuthenticated]);
 
-  // Debug sharing function
-  const debugSharing = async () => {
-    console.log('=== DEBUG SHARING ===');
-    console.log('1. Note ID:', id);
-    console.log('2. Is new note:', isNewNote);
-    console.log('3. Current user:', user);
-    console.log('4. Selected users:', selectedUsers);
-    console.log('5. Shared with:', sharedWith);
-    
-    // Test user search
-    if (searchQuery.length >= 2) {
-      console.log('Testing user search with query:', searchQuery);
-      try {
-        const response = await api.searchUsers(searchQuery);
-        console.log('Search response:', response.data);
-      } catch (error) {
-        console.error('Search error:', error.response?.data || error.message);
-      }
-    }
-    
-    // Test share endpoint
-    if (id && !isNewNote && selectedUsers.length > 0) {
-      console.log('Testing share with first selected user:', selectedUsers[0]);
-      const testShareData = {
-        userId: selectedUsers[0]._id,
-        permission: 'read'
-      };
-      console.log('Share data:', testShareData);
-      
-      try {
-        const response = await api.shareNote(id, testShareData);
-        console.log('Share test response:', response.data);
-      } catch (error) {
-        console.error('Share test error:', {
-          status: error.response?.status,
-          data: error.response?.data,
-          message: error.message
-        });
-      }
-    }
-  };
 
   // UPDATED save function
   const handleSave = async () => {
@@ -952,7 +728,7 @@ const NoteEditor = () => {
     console.log('🔍 Current content length:', content.length);
     console.log('🔍 isNewNote:', isNewNote);
     console.log('🔍 id from useParams:', id);
-    
+
     if (!title.trim()) {
       setError('Title is required');
       return;
@@ -975,7 +751,7 @@ const NoteEditor = () => {
       const tagsArray = tags.split(',')
         .map(tag => tag.trim())
         .filter(tag => tag.length > 0);
-      
+
       const noteData = {
         title: title.trim(),
         tags: tagsArray,
@@ -990,10 +766,26 @@ const NoteEditor = () => {
       });
 
       // Encrypt content if we have master key
-      if (masterKey && content) {
+      // Enforce mandatory encryption
+      if (!masterKey) {
+        setError('Encryption is required. Please reload the page or log in again to restore your keys.');
+        setSaving(false);
+        return;
+      }
+
+      if (content) {
         try {
           console.log('🔍 NoteEditor: Encrypting content...');
-          const encrypted = encryptNote(content, masterKey);
+
+          // CRITICAL SAFETY CHECK: If this is a shared note, we MUST have the sessionNoteKey
+          if (!isNewNote && !isOwner && !sessionNoteKey) {
+            setError('Safety Error: Cannot save shared note because its encryption key is not decrypted. Please unlock the note first.');
+            setSaving(false);
+            return;
+          }
+
+          const keyToUse = sessionNoteKey || masterKey; // CRITICAL: Use current note key if available
+          const encrypted = encryptNote(content, keyToUse);
           noteData.content = encrypted.ciphertext;
           noteData.encryptionMetadata = {
             algorithm: 'AES-CBC',
@@ -1003,17 +795,17 @@ const NoteEditor = () => {
           console.log('🔍 NoteEditor: Content encrypted successfully');
         } catch (encryptError) {
           console.error('🔍 NoteEditor: Encryption error:', encryptError);
-          setError('Failed to encrypt note. Using plaintext.');
-          noteData.content = content;
-          noteData.isEncrypted = false;
+          setError('Failed to encrypt note. Cannot save unencrypted data.');
+          setSaving(false);
+          return;
         }
       } else {
-        noteData.content = content;
-        noteData.isEncrypted = false;
+        // Empty content is allowed but treated as encrypted
+        noteData.content = '';
       }
 
       console.log('🔍 NoteEditor: Sending note data to API...');
-      
+
       let response;
       if (isNewNote) {
         console.log('🔍 Creating new note via API...');
@@ -1028,7 +820,7 @@ const NoteEditor = () => {
       if (response.data && response.data.id) {
         console.log('✅ Note saved successfully! ID:', response.data.id);
         alert('✅ Note saved successfully!');
-        
+
         if (isNewNote) {
           // Navigate to the newly created note
           navigate(`/note/${response.data.id}`);
@@ -1040,7 +832,7 @@ const NoteEditor = () => {
         console.error('❌ Note saved but no ID returned:', response.data);
         alert('Note saved but something went wrong. Please check console.');
       }
-      
+
     } catch (error) {
       console.error('🔍 NoteEditor: Save error:', {
         message: error.message,
@@ -1051,7 +843,7 @@ const NoteEditor = () => {
           method: error.config?.method
         }
       });
-      
+
       if (error.response?.status === 401) {
         setError('Session expired. Please log in again.');
         localStorage.removeItem('token');
@@ -1073,13 +865,16 @@ const NoteEditor = () => {
   const handleRestoreVersion = async (version) => {
     if (window.confirm(`Restore to version ${version}?`)) {
       try {
+        setSaving(true);
         await api.restoreVersion(id, version);
-        fetchNote();
+        await fetchNote();
         setShowHistory(false);
         alert('Version restored successfully!');
       } catch (error) {
         console.error('Restore error:', error);
-        alert('Failed to restore version');
+        alert('Failed to restore version: ' + (error.response?.data?.error || error.message));
+      } finally {
+        setSaving(false);
       }
     }
   };
@@ -1088,14 +883,14 @@ const NoteEditor = () => {
   const formatText = (command, value = null) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-    
+
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const selectedText = content.substring(start, end);
-    
+
     let formattedText = '';
     let cursorOffset = 0;
-    
+
     switch (command) {
       case 'bold':
         formattedText = `**${selectedText}**`;
@@ -1145,10 +940,10 @@ const NoteEditor = () => {
       default:
         formattedText = selectedText;
     }
-    
+
     const newContent = content.substring(0, start) + formattedText + content.substring(end);
     setContent(newContent);
-    
+
     // Focus back on textarea and position cursor
     setTimeout(() => {
       textarea.focus();
@@ -1197,7 +992,7 @@ const NoteEditor = () => {
       .replace(/`(.*?)`/g, '<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm font-mono">$1</code>')
       .replace(/^- (.*$)/gim, '<li class="ml-4">$1</li>')
       .replace(/\n/g, '<br />');
-    
+
     return { __html: preview };
   };
 
@@ -1221,54 +1016,7 @@ const NoteEditor = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8" ref={editorRef}>
       {/* Password Prompt Modal */}
-      {showPasswordPrompt && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                <FaLock className="text-white text-xl" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Encryption Required</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Enter password to encrypt this note</p>
-              </div>
-            </div>
-            
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              This note was created with encryption enabled. Please enter the encryption password to continue.
-            </p>
-            
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter encryption password"
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white mb-4"
-              onKeyPress={(e) => e.key === 'Enter' && handlePasswordSubmit()}
-              autoFocus
-            />
-            
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowPasswordPrompt(false);
-                  setPassword('');
-                  alert('Note will be saved without encryption.');
-                }}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                Skip Encryption
-              </button>
-              <button
-                onClick={handlePasswordSubmit}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 font-medium transition-all"
-              >
-                Set Password
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Share Modal */}
       {showShareModal && (
@@ -1298,7 +1046,7 @@ const NoteEditor = () => {
                 </div>
               </div>
             )}
-            
+
             {sharingSuccess && (
               <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                 <div className="flex items-center">
@@ -1331,7 +1079,7 @@ const NoteEditor = () => {
                   </div>
                 )}
               </div>
-              
+
               {/* Search Results */}
               {searchResults.length > 0 && (
                 <div className="mt-2 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -1356,7 +1104,7 @@ const NoteEditor = () => {
                   ))}
                 </div>
               )}
-              
+
               {searchQuery.length >= 2 && !searchLoading && searchResults.length === 0 && (
                 <div className="mt-2 text-center py-4 text-gray-500 dark:text-gray-400">
                   No users found for "{searchQuery}"
@@ -1461,247 +1209,6 @@ const NoteEditor = () => {
         </div>
       )}
 
-      {/* Enhanced Debug Panel */}
-      <div className="mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-4 border border-gray-300 dark:border-gray-700">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-3">
-          <div className="flex items-center gap-3">
-            <FaBug className="text-yellow-600" />
-            <h3 className="font-medium text-gray-900 dark:text-white">Debug Panel</h3>
-            {isNewNote && (
-              <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs rounded">
-                Creating New Note
-              </span>
-            )}
-            {apiError && !isNewNote && (
-              <span className="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs rounded">
-                API Error: {apiError.status || 'No Status'}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={testBackendHealth}
-              className="px-3 py-1 bg-green-500 text-white rounded text-sm flex items-center gap-2 hover:bg-green-600"
-            >
-              <FaServer />
-              Test Backend
-            </button>
-
-            <button
-              onClick={testDirectApiCall}
-              className="px-3 py-1 bg-purple-500 text-white rounded text-sm flex items-center gap-2 hover:bg-purple-600"
-              disabled={isNewNote}
-              title={isNewNote ? "Cannot test API for new notes" : "Test API with current note ID"}
-            >
-              <FaNetworkWired />
-              Test API Direct
-            </button>
-            <button
-              onClick={listAllNotes}
-              className="px-3 py-1 bg-teal-500 text-white rounded text-sm flex items-center gap-2 hover:bg-teal-600"
-            >
-              <FaList />
-              List Notes
-            </button>
-            <button
-              onClick={debugNoteId}
-              className="px-3 py-1 bg-indigo-500 text-white rounded text-sm flex items-center gap-2 hover:bg-indigo-600"
-            >
-              <FaDatabase />
-              Debug ID
-            </button>
-            <button
-              onClick={debugAuth}
-              className="px-3 py-1 bg-yellow-500 text-white rounded text-sm flex items-center gap-2 hover:bg-yellow-600"
-            >
-              <FaKey />
-              Test Auth
-            </button>
-            {/* ADDED Current State Debug Button */}
-            <button
-              onClick={() => {
-                console.log('=== CURRENT STATE DEBUG ===');
-                console.log('Title:', title);
-                console.log('Tags:', tags);
-                console.log('Content length:', content.length);
-                console.log('Location state:', location.state);
-                console.log('Is new note:', isNewNote);
-                console.log('Master key present:', !!masterKey);
-                console.log('useParams id:', id);
-                console.log('Window location:', window.location.href);
-                alert(`Current State:\n\nTitle: "${title}"\nTags: "${tags}"\nContent: ${content.length} chars\nLocation State: ${JSON.stringify(location.state)}\nIs New Note: ${isNewNote}\nuseParams id: ${id}\nURL: ${window.location.href}`);
-              }}
-              className="px-3 py-1 bg-gray-500 text-white rounded text-sm flex items-center gap-2 hover:bg-gray-600"
-            >
-              <FaInfoCircle />
-              Current State
-            </button>
-            {/* ADDED: Force create new note button */}
-            <button
-              onClick={handleCreateNewNote}
-              className="px-3 py-1 bg-blue-600 text-white rounded text-sm flex items-center gap-2 hover:bg-blue-700"
-            >
-              <FaStickyNote />
-              Force New Note
-            </button>
-            {/* ADDED: Debug sharing button */}
-            <button
-              onClick={debugSharing}
-              className="px-3 py-1 bg-pink-500 text-white rounded text-sm flex items-center gap-2 hover:bg-pink-600"
-            >
-              <FaUserFriends />
-              Debug Sharing
-            </button>
-            <button
-              onClick={updateDebugInfo}
-              className="px-3 py-1 bg-blue-500 text-white rounded text-sm flex items-center gap-2 hover:bg-blue-600"
-            >
-              <FaInfoCircle />
-              Refresh
-            </button>
-            <button
-              onClick={() => {
-                localStorage.clear();
-                window.location.href = '/login';
-              }}
-              className="px-3 py-1 bg-red-500 text-white rounded text-sm flex items-center gap-2 hover:bg-red-600"
-            >
-              <FaExclamationTriangle />
-              Clear & Login
-            </button>
-          </div>
-        </div>
-        
-        {debugInfo && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-xs">
-              <div className="p-2 bg-white dark:bg-gray-900 rounded">
-                <div className="text-gray-500">Auth Status</div>
-                <div className={`font-medium ${debugInfo.isAuthenticated ? 'text-green-600' : 'text-red-600'}`}>
-                  {debugInfo.isAuthenticated ? '✅ Logged In' : '❌ Logged Out'}
-                </div>
-              </div>
-              <div className="p-2 bg-white dark:bg-gray-900 rounded">
-                <div className="text-gray-500">Auth Loading</div>
-                <div className={`font-medium ${debugInfo.authLoading ? 'text-yellow-600' : 'text-gray-600'}`}>
-                  {debugInfo.authLoading ? '⏳ Loading...' : '✅ Ready'}
-                </div>
-              </div>
-              <div className="p-2 bg-white dark:bg-gray-900 rounded">
-                <div className="text-gray-500">Backend</div>
-                <div className={`font-medium ${debugInfo.backendStatus === 'connected' ? 'text-green-600' : debugInfo.backendStatus === 'disconnected' ? 'text-red-600' : 'text-yellow-600'}`}>
-                  {debugInfo.backendStatus === 'connected' ? '✅ Connected' : 
-                   debugInfo.backendStatus === 'disconnected' ? '❌ Disconnected' : '⚠️ Unknown'}
-                </div>
-              </div>
-              <div className="p-2 bg-white dark:bg-gray-900 rounded">
-                <div className="text-gray-500">Token</div>
-                <div className={`font-medium ${debugInfo.hasToken ? 'text-green-600' : 'text-red-600'}`}>
-                  {debugInfo.hasToken ? `✅ ${debugInfo.tokenLength} chars` : '❌ Missing'}
-                </div>
-              </div>
-              <div className="p-2 bg-white dark:bg-gray-900 rounded">
-                <div className="text-gray-500">User</div>
-                <div className="font-medium truncate">
-                  {debugInfo.user ? debugInfo.user.email : 'None'}
-                </div>
-              </div>
-              <div className="p-2 bg-white dark:bg-gray-900 rounded">
-                <div className="text-gray-500">Encryption</div>
-                <div className={`font-medium ${debugInfo.masterKey ? 'text-green-600' : 'text-yellow-600'}`}>
-                  {debugInfo.masterKey ? '✅ Active' : '⚠️ Inactive'}
-                </div>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="p-3 bg-white dark:bg-gray-900 rounded border">
-                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Note Details</div>
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Note ID from useParams:</span>
-                    <span className="font-mono truncate">
-                      {debugInfo.noteId === undefined ? 'undefined' : debugInfo.noteId}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Is New Note:</span>
-                    <span className={debugInfo.isNewNote ? 'text-green-600 font-medium' : ''}>
-                      {debugInfo.isNewNote ? '✅ Yes' : '❌ No'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Valid ObjectId:</span>
-                    <span className={debugInfo.isValidObjectId ? 'text-green-600' : 'text-gray-500'}>
-                      {debugInfo.isNewNote ? 'N/A (New Note)' : debugInfo.isValidObjectId ? '✅ Yes' : '❌ No'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">User ID:</span>
-                    <span className="font-mono truncate">{debugInfo.user?.id || 'None'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Actual URL:</span>
-                    <span className="font-mono truncate">{window.location.href}</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="p-3 bg-white dark:bg-gray-900 rounded border">
-                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">API Status</div>
-                <div className="space-y-1 text-xs">
-                  {debugInfo.isNewNote ? (
-                    <div className="text-green-600 text-center py-2">
-                      <FaCheckCircle className="inline mr-2" />
-                      Creating new note - no API call needed
-                    </div>
-                  ) : debugInfo.apiResponse ? (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Response:</span>
-                        <span className="text-green-600 font-medium">✅ Received</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Note ID:</span>
-                        <span className="font-mono truncate">{debugInfo.apiResponse.id}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Title:</span>
-                        <span className="truncate">{debugInfo.apiResponse.title}</span>
-                      </div>
-                    </>
-                  ) : debugInfo.apiError ? (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Status:</span>
-                        <span className="text-red-600 font-medium">
-                          ❌ {debugInfo.apiError.status || 'Error'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Message:</span>
-                        <span className="truncate text-red-500">{debugInfo.apiError.message}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-gray-500 text-center py-2">No API call made yet</div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {debugInfo.tokenPreview && (
-              <div className="p-3 bg-white dark:bg-gray-900 rounded border">
-                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Preview</div>
-                <div className="font-mono text-xs bg-gray-50 dark:bg-gray-800 p-2 rounded break-all">
-                  {debugInfo.tokenPreview}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div className="flex-1">
@@ -1711,7 +1218,7 @@ const NoteEditor = () => {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Note Title"
             className="text-3xl font-bold w-full border-0 focus:outline-none focus:ring-0 bg-transparent dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-            disabled={!!apiError && !isNewNote}
+            disabled={!canEdit || saving}
           />
           <div className="mt-2">
             <input
@@ -1720,53 +1227,44 @@ const NoteEditor = () => {
               onChange={(e) => setTags(e.target.value)}
               placeholder="Tags (comma separated)"
               className="text-sm text-gray-600 dark:text-gray-400 w-full border-0 focus:outline-none focus:ring-0 bg-transparent placeholder-gray-400 dark:placeholder-gray-500"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             />
           </div>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border whitespace-nowrap shadow-sm ${isOwner
+            ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400'
+            : canEdit
+              ? 'bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-400'
+              : 'bg-gray-50 border-gray-200 text-gray-600 dark:bg-gray-900/40 dark:border-gray-800 dark:text-gray-400'
+            }`}>
+            {isOwner ? (
+              <>
+                <FaShieldAlt className="text-sm" />
+                <span className="text-sm font-medium">Full Access</span>
+              </>
+            ) : canEdit ? (
+              <>
+                <FaEdit className="text-sm" />
+                <span className="text-sm font-medium">Can Edit</span>
+              </>
+            ) : (
+              <>
+                <FaEye className="text-sm" />
+                <span className="text-sm font-medium">View Only</span>
+              </>
+            )}
+          </div>
           {!isNewNote && (
-            <>
-              <button
-                onClick={fetchVersions}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
-                disabled={!!apiError}
-              >
-                <FaHistory />
-                <span>History</span>
-              </button>
-              <button
-                onClick={openShareModal} // FIXED: Now using the defined function
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
-                disabled={!!apiError}
-              >
-                <FaShareAlt />
-                <span>Share</span>
-              </button>
-              <button
-                onClick={fetchNote}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
-                disabled={!!apiError}
-              >
-                <FaDatabase />
-                <span>Reload Note</span>
-              </button>
-            </>
+            <button
+              onClick={fetchVersions}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
+              disabled={false}
+            >
+              <FaHistory />
+              <span>History</span>
+            </button>
           )}
-          <button
-            onClick={() => setShowPreview(!showPreview)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
-          >
-            {showPreview ? <FaEyeSlash /> : <FaEye />}
-            <span>{showPreview ? 'Hide Preview' : 'Show Preview'}</span>
-          </button>
-          <button
-            onClick={toggleFullscreen}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
-          >
-            {isFullscreen ? <FaCompress /> : <FaExpand />}
-            <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
-          </button>
           <button
             onClick={() => navigate('/')}
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
@@ -1777,7 +1275,7 @@ const NoteEditor = () => {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !isAuthenticated || authLoading || (!!apiError && !isNewNote)}
+            disabled={saving || !isAuthenticated || authLoading}
             className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 flex items-center gap-2 transition-all shadow-lg hover:shadow-xl"
           >
             <FaSave />
@@ -1796,92 +1294,29 @@ const NoteEditor = () => {
             </div>
             <div className="ml-3">
               <p className="text-sm text-red-800 dark:text-red-200 font-medium">
-                {isNewNote && error.includes('Invalid note ID') 
-                  ? 'Creating new note... Enter title and content below' 
+                {isNewNote && error.includes('Invalid note ID')
+                  ? 'Creating new note... Enter title and content below'
                   : error}
               </p>
-              {apiError?.data && (
-                <p className="text-xs text-red-600 dark:text-red-300 mt-1">
-                  Server error: {JSON.stringify(apiError.data)}
-                </p>
-              )}
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => navigate('/')}
-                  className="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded"
-                >
-                  View All Notes
-                </button>
-                {!isNewNote && (
-                  <button
-                    onClick={() => navigate('/note/new')}
-                    className="px-3 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-800 rounded"
-                  >
-                    Create New Note
-                  </button>
-                )}
-              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Stats and Settings */}
-      <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-200 dark:border-gray-700">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              {masterKey ? (
-                <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                  <FaLock />
-                  <span className="font-medium">Encryption Active</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                  <FaKey />
-                  <span className="font-medium">Not Encrypted</span>
-                </div>
-              )}
-            </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
-              <span className="font-medium">{content.length}</span> characters •{' '}
-              <span className="font-medium">{content.trim().split(/\s+/).filter(Boolean).length}</span> words
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
-                checked={isAutoResizing}
-                onChange={(e) => setIsAutoResizing(e.target.checked)}
-                className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              Auto-resize editor
-            </label>
-            <div className="w-px h-4 bg-gray-300 dark:bg-gray-600"></div>
-            <div className={`text-xs ${isAuthenticated ? 'text-green-600' : 'text-red-600'}`}>
-              {isAuthenticated ? '✅ Logged in' : '❌ Not logged in'}
-            </div>
-            <div className="w-px h-4 bg-gray-300 dark:bg-gray-600"></div>
-            <div className={`text-xs ${backendStatus === 'connected' ? 'text-green-600' : 'text-red-600'}`}>
-              Backend: {backendStatus === 'connected' ? '✅ Connected' : '❌ Disconnected'}
-            </div>
-          </div>
-        </div>
-      </div>
+
 
       {/* Enhanced formatting toolbar */}
       <div className="mb-6 bg-gradient-to-r from-gray-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 mr-2">Format:</span>
-          
+
           {/* Headings */}
           <div className="flex items-center bg-white dark:bg-gray-800 rounded-lg p-1 shadow-inner">
             <button
               onClick={() => formatText('heading', 1)}
               className="px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-1 transition-colors"
               title="Heading 1"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaHeading className="text-gray-600 dark:text-gray-400 text-sm" />
               <span className="text-sm font-medium">H1</span>
@@ -1891,7 +1326,7 @@ const NoteEditor = () => {
               onClick={() => formatText('heading', 2)}
               className="px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
               title="Heading 2"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               H2
             </button>
@@ -1899,7 +1334,7 @@ const NoteEditor = () => {
               onClick={() => formatText('heading', 3)}
               className="px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
               title="Heading 3"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               H3
             </button>
@@ -1911,7 +1346,7 @@ const NoteEditor = () => {
               onClick={() => formatText('bold')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Bold (Ctrl+B)"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaBold className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1919,7 +1354,7 @@ const NoteEditor = () => {
               onClick={() => formatText('italic')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Italic (Ctrl+I)"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaItalic className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1927,7 +1362,7 @@ const NoteEditor = () => {
               onClick={() => formatText('underline')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Underline"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaUnderline className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1939,7 +1374,7 @@ const NoteEditor = () => {
               onClick={() => formatText('bullet')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Bullet List"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaListUl className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1947,7 +1382,7 @@ const NoteEditor = () => {
               onClick={() => formatText('numbered')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Numbered List"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaListOl className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1959,7 +1394,7 @@ const NoteEditor = () => {
               onClick={() => formatText('inlineCode')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Inline Code (Ctrl+K)"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaCode className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1967,7 +1402,7 @@ const NoteEditor = () => {
               onClick={() => formatText('code')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Code Block"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaCode className="text-lg text-gray-600 dark:text-gray-400" />
             </button>
@@ -1975,7 +1410,7 @@ const NoteEditor = () => {
               onClick={() => formatText('quote')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Blockquote"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaQuoteLeft className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1987,7 +1422,7 @@ const NoteEditor = () => {
               onClick={() => formatText('link')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Insert Link"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaLink className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -1995,7 +1430,7 @@ const NoteEditor = () => {
               onClick={() => formatText('image')}
               className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Insert Image"
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             >
               <FaImage className="text-gray-600 dark:text-gray-400" />
             </button>
@@ -2020,9 +1455,8 @@ const NoteEditor = () => {
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={handleKeyDown}
               className="w-full min-h-[500px] border-2 border-gray-300 dark:border-gray-600 rounded-xl p-6 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-base resize-y transition-all bg-white dark:bg-gray-900 dark:text-white"
-              placeholder={isNewNote 
-                ? "Start typing your new note here... Use Markdown for formatting: # Headings, **bold**, *italic*, `code`, - lists, etc." 
-                : apiError ? "Note failed to load. Check debug panel for details." 
+              placeholder={isNewNote
+                ? "Start typing your new note here... Use Markdown for formatting: # Headings, **bold**, *italic*, `code`, - lists, etc."
                 : "Start typing your note here... Use Markdown for formatting: # Headings, **bold**, *italic*, `code`, - lists, etc."}
               style={{
                 lineHeight: '1.6',
@@ -2030,9 +1464,9 @@ const NoteEditor = () => {
                 minHeight: '500px',
                 maxHeight: 'calc(100vh - 300px)'
               }}
-              disabled={!!apiError && !isNewNote}
+              disabled={!canEdit || saving}
             />
-            
+
             {/* Character counter */}
             <div className="absolute bottom-4 right-4 flex items-center gap-2">
               <div className="text-xs text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-800/80 px-2 py-1 rounded">
@@ -2056,14 +1490,14 @@ const NoteEditor = () => {
                   Live Markdown Preview
                 </div>
               </div>
-              <div 
+              <div
                 className="prose dark:prose-invert max-w-none markdown-preview"
                 dangerouslySetInnerHTML={renderPreview()}
               />
               {!content && (
                 <div className="text-center py-16 text-gray-400 dark:text-gray-500">
                   <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FaStickyNote className="text-2xl" />
+                    <div className="text-4xl text-gray-300">📝</div>
                   </div>
                   <p>Start typing to see the preview...</p>
                 </div>
@@ -2156,8 +1590,14 @@ const NoteEditor = () => {
                           </div>
                         </div>
                         <div className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg font-mono overflow-auto max-h-24">
-                          {version.content.substring(0, 300)}
-                          {version.content.length > 300 && '...'}
+                          {version.decryptionFailed ? (
+                            <span className="text-red-500 italic">[Decryption Failed - Content Encrypted]</span>
+                          ) : (
+                            <>
+                              {version.content.substring(0, 300)}
+                              {version.content.length > 300 && '...'}
+                            </>
+                          )}
                         </div>
                       </div>
                       <button

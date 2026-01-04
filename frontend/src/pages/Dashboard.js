@@ -1,38 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { 
-  FaPlus, 
-  FaSearch, 
-  FaLock, 
-  FaUnlock, 
-  FaFilter, 
-  FaSort, 
-  FaTrash, 
-  FaShareAlt, 
-  FaEye, 
+import {
+  FaPlus,
+  FaSearch,
+  FaLock,
+  FaUnlock,
+  FaFilter,
+  FaSort,
+  FaTrash,
+  FaShareAlt,
+  FaEye,
   FaEdit,
   FaStickyNote
 } from 'react-icons/fa';
 import api from '../services/api';
 // import NoteList from '../NotesList';
 import ShareModal from '../components/ShareModal';
-import TitleModal from '../components/TitleModal'; // NEW IMPORT
+
 import { useCrypto } from '../contexts/CryptoContext';
 import { useAuth } from '../contexts/AuthContext';
 
 const Dashboard = () => {
   const [notes, setNotes] = useState([]);
+  const [sharedNotes, setSharedNotes] = useState([]);
   const [filteredNotes, setFilteredNotes] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredSharedNotes, setFilteredSharedNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [shareModal, setShareModal] = useState(null);
-  const [masterPassword, setMasterPassword] = useState('');
-  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('updatedAt');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedTags, setSelectedTags] = useState([]);
-  const [showTitleModal, setShowTitleModal] = useState(false); // NEW STATE
-  
+
+
   const { masterKey, setMasterKey, deriveKeyFromPassword } = useCrypto();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -42,43 +42,52 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    let filtered = notes;
-    
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(note =>
-        note.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        note.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
-    }
-    
-    // Filter by tags
-    if (selectedTags.length > 0) {
-      filtered = filtered.filter(note =>
-        note.tags?.some(tag => selectedTags.includes(tag))
-      );
-    }
-    
-    // Sort notes
-    filtered.sort((a, b) => {
-      const aValue = a[sortBy];
-      const bValue = b[sortBy];
-      
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
+    const filterAndSort = (notesList) => {
+      let filtered = [...notesList];
+
+      // Filter by search term
+      if (searchTerm) {
+        filtered = filtered.filter(note =>
+          note.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          note.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
       }
-    });
-    
-    setFilteredNotes(filtered);
-  }, [searchTerm, notes, selectedTags, sortBy, sortOrder]);
+
+      // Filter by tags
+      if (selectedTags.length > 0) {
+        filtered = filtered.filter(note =>
+          note.tags?.some(tag => selectedTags.includes(tag))
+        );
+      }
+
+      // Sort notes
+      filtered.sort((a, b) => {
+        const aValue = a[sortBy];
+        const bValue = b[sortBy];
+
+        if (sortOrder === 'asc') {
+          return aValue > bValue ? 1 : -1;
+        } else {
+          return aValue < bValue ? 1 : -1;
+        }
+      });
+
+      return filtered;
+    };
+
+    setFilteredNotes(filterAndSort(notes));
+    setFilteredSharedNotes(filterAndSort(sharedNotes));
+  }, [searchTerm, notes, sharedNotes, selectedTags, sortBy, sortOrder]);
 
   const fetchNotes = async () => {
     try {
       setLoading(true);
-      const response = await api.getNotes();
-      setNotes(response.data);
+      const [myNotesRes, sharedNotesRes] = await Promise.all([
+        api.getNotes(),
+        api.getSharedNotes()
+      ]);
+      setNotes(myNotesRes.data);
+      setSharedNotes(sharedNotesRes.data);
     } catch (error) {
       console.error('Failed to fetch notes:', error);
     } finally {
@@ -86,32 +95,41 @@ const Dashboard = () => {
     }
   };
 
-  // In Dashboard.js, update the handleCreateNewNote function:
-const handleCreateNewNote = async (noteData) => {
-  try {
-    console.log('Creating new note with data:', noteData);
-    
-    // If encryption is enabled, set the master key first
-    if (noteData.encrypt && noteData.password) {
-      const derivedKey = deriveKeyFromPassword(noteData.password, 'master-salt');
-      setMasterKey(derivedKey);
-    }
-    
-    // Navigate to new note page with state data - FIXED THIS LINE
-    navigate('/note/new', { 
-      state: { 
-        prefillTitle: noteData.title,
-        prefillTags: noteData.tags,
-        shouldEncrypt: noteData.encrypt,
-        encryptionPassword: noteData.password // Add this if you want to pass password
+  const handleAccessSharedNote = async (note) => {
+    try {
+      if (!masterKey) {
+        alert('Encryption keys are missing. Please log in again to access shared notes.');
+        return;
       }
-    });
-    
-  } catch (error) {
-    console.error('Failed to create new note:', error);
-    alert('Failed to create new note. Please try again.');
-  }
-};
+
+      // Get the share key
+      let encryptedKey;
+      try {
+        const ownerId = note.owner?._id || note.owner;
+        const response = await api.getShareKey(note._id, ownerId);
+        encryptedKey = response.data.encryptedKey;
+      } catch (err) {
+        console.warn('⚠️ Fetch with ownerId failed in Dashboard, trying "any":', err.message);
+        const response = await api.getShareKey(note._id, 'any');
+        encryptedKey = response.data.encryptedKey;
+      }
+
+      // Store the encrypted key for NoteEditor to pick up
+      localStorage.setItem(`share_key_${note._id}`, JSON.stringify({
+        encryptedKey,
+        fromUserId: note.owner?._id || note.owner
+      }));
+
+      // Navigate to note
+      navigate(`/note/${note._id}`);
+    } catch (error) {
+      console.error('Failed to access shared note:', error);
+      alert('Failed to access shared note');
+    }
+  };
+
+
+
 
   const handleDeleteNote = async (noteId) => {
     if (window.confirm('Are you sure you want to delete this note? This action cannot be undone.')) {
@@ -125,24 +143,32 @@ const handleCreateNewNote = async (noteData) => {
     }
   };
 
+  const handleRemoveSharedNote = async (noteId) => {
+    if (window.confirm('Are you sure you want to remove this shared note? You will no longer have access to it.')) {
+      try {
+        const currentUserId = user?._id || user?.id;
+        await api.removeShare(noteId, currentUserId);
+        fetchNotes();
+      } catch (error) {
+        console.error('Failed to remove shared note:', error);
+        alert('Failed to remove shared note');
+      }
+    }
+  };
+
   const handleShareNote = (note) => {
     if (!masterKey) {
-      setShowPasswordPrompt(true);
+      alert('Encryption keys are missing. Please log in again to share notes.');
       return;
     }
     setShareModal(note);
   };
 
-  const handlePasswordSubmit = () => {
-    const derivedKey = deriveKeyFromPassword(masterPassword, 'master-salt');
-    setMasterKey(derivedKey);
-    setShowPasswordPrompt(false);
-    setMasterPassword('');
-  };
+
 
   const getAllTags = () => {
     const tags = new Set();
-    notes.forEach(note => {
+    [...notes, ...sharedNotes].forEach(note => {
       note.tags?.forEach(tag => tags.add(tag));
     });
     return Array.from(tags);
@@ -178,7 +204,7 @@ const handleCreateNewNote = async (noteData) => {
         <div className="flex flex-wrap gap-3">
           {/* UPDATED: Changed from Link to button with click handler */}
           <button
-            onClick={() => setShowTitleModal(true)}
+            onClick={() => navigate('/note/new')}
             className="px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 font-medium flex items-center space-x-2 transition-all shadow-lg hover:shadow-xl"
           >
             <FaPlus />
@@ -187,56 +213,7 @@ const handleCreateNewNote = async (noteData) => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-200 dark:border-gray-700">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">{notes.length}</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total Notes</div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-3">
-            <div className="bg-blue-600 h-2 rounded-full" style={{ width: '100%' }}></div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-200 dark:border-gray-700">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {notes.filter(n => n.isEncrypted).length}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">Encrypted</div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-3">
-            <div className="bg-green-600 h-2 rounded-full" style={{ 
-              width: `${(notes.filter(n => n.isEncrypted).length / Math.max(notes.length, 1)) * 100}%` 
-            }}></div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-200 dark:border-gray-700">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {getAllTags().length}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">Unique Tags</div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-3">
-            <div className="bg-purple-600 h-2 rounded-full" style={{ 
-              width: `${Math.min((getAllTags().length / Math.max(notes.length, 1)) * 100, 100)}%` 
-            }}></div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                {masterKey ? '🔒' : '🔓'}
-              </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {masterKey ? 'Locked' : 'Unlocked'}
-              </div>
-            </div>
-            <button
-              onClick={() => setShowPasswordPrompt(true)}
-              className={`p-2 rounded-lg ${masterKey ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}
-            >
-              {masterKey ? <FaLock /> : <FaUnlock />}
-            </button>
-          </div>
-        </div>
-      </div>
+
 
       {/* Search and Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-200 dark:border-gray-700">
@@ -293,7 +270,7 @@ const handleCreateNewNote = async (noteData) => {
                   className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${selectedTags.includes(tag)
                     ? 'bg-blue-600 text-white shadow'
                     : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                    }`}
                 >
                   #{tag}
                 </button>
@@ -311,172 +288,169 @@ const handleCreateNewNote = async (noteData) => {
         )}
       </div>
 
-      {/* Notes List */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Notes ({filteredNotes.length})
-            </h2>
-            {filteredNotes.length > 0 && (
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                Showing {filteredNotes.length} of {notes.length} notes
+      {/* Sections Container */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+        {/* My Notes Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <FaStickyNote className="text-blue-500" /> My Notes
+              </h2>
+              <span className="px-2.5 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-xs font-bold rounded-full">
+                {filteredNotes.length}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto max-h-[600px]">
+            {filteredNotes.length === 0 ? (
+              <div className="text-center py-12 px-6">
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  {notes.length === 0 ? "You haven't created any notes yet." : "No notes matching your filters."}
+                </p>
+                {notes.length === 0 && (
+                  <button
+                    onClick={() => navigate('/note/new')}
+                    className="text-blue-600 font-medium hover:underline"
+                  >
+                    Create your first note
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                {filteredNotes.map(note => (
+                  <div key={note._id} className="p-5 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors group">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Link
+                            to={`/note/${note._id}`}
+                            className="text-lg font-bold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate block"
+                          >
+                            {note.title || 'Untitled Note'}
+                          </Link>
+                          {note.isEncrypted && <FaLock className="text-green-500 text-xs flex-shrink-0" title="Encrypted" />}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-3">
+                          <span>Updated {new Date(note.updatedAt).toLocaleDateString()}</span>
+                          {note.tags && note.tags.length > 0 && (
+                            <span className="truncate">#{note.tags[0]}{note.tags.length > 1 ? ` +${note.tags.length - 1}` : ''}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleShareNote(note)}
+                          className="p-2 text-gray-400 hover:text-blue-500 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                          title="Share"
+                        >
+                          <FaShareAlt size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteNote(note._id)}
+                          className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                          title="Delete"
+                        >
+                          <FaTrash size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
 
-        {filteredNotes.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-24 h-24 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-              <FaStickyNote className="text-3xl text-gray-400" />
+        {/* Shared Notes Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <FaShareAlt className="text-purple-500" /> Shared with Me
+              </h2>
+              <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-xs font-bold rounded-full">
+                {filteredSharedNotes.length}
+              </span>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              {notes.length === 0 ? 'No notes yet' : 'No notes found'}
-            </h3>
-            <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
-              {notes.length === 0 
-                ? 'Create your first encrypted note to get started'
-                : 'Try adjusting your search or filter criteria'
-              }
-            </p>
-            <button
-              onClick={() => setShowTitleModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 font-medium inline-flex items-center space-x-2 transition-all"
-            >
-              <FaPlus />
-              <span>Create New Note</span>
-            </button>
           </div>
-        ) : (
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {filteredNotes.map(note => (
-              <div key={note._id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <Link
-                        to={`/note/${note._id}`}
-                        className="text-lg font-semibold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                      >
-                        {note.title}
-                      </Link>
-                      {note.isEncrypted && (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-medium rounded-full flex items-center gap-1">
-                          <FaLock className="text-xs" /> Encrypted
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                      Last updated: {new Date(note.updatedAt).toLocaleDateString()} at {new Date(note.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </div>
 
-                    {note.tags && note.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mb-4">
-                        {note.tags.map(tag => (
-                          <span
-                            key={tag}
-                            className="px-2.5 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs font-medium rounded-full"
+          <div className="flex-1 overflow-y-auto max-h-[600px]">
+            {filteredSharedNotes.length === 0 ? (
+              <div className="text-center py-12 px-6">
+                <p className="text-gray-500 dark:text-gray-400">
+                  {sharedNotes.length === 0 ? "No notes have been shared with you yet." : "No shared notes matching your filters."}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                {filteredSharedNotes.map(note => (
+                  <div key={note._id} className="p-5 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors group">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <button
+                            onClick={() => handleAccessSharedNote(note)}
+                            className="text-lg font-bold text-gray-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 transition-colors truncate text-left"
                           >
-                            #{tag}
-                          </span>
-                        ))}
+                            {note.title || 'Untitled Note'}
+                          </button>
+                          {note.isEncrypted && <FaLock className="text-green-500 text-xs flex-shrink-0" title="Encrypted" />}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">
+                              By {note.owner?.username || 'Unknown'}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${note.permission === 'write'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                              : 'bg-gray-100 text-gray-600 dark:bg-gray-900/50 dark:text-gray-400'
+                              }`}>
+                              {note.permission === 'write' ? 'Can Write' : 'Read Only'}
+                            </span>
+                            <span className="text-gray-400">•</span>
+                            <span>{new Date(note.updatedAt).toLocaleDateString()}</span>
+                          </div>
+                          {note.tags && note.tags.length > 0 && (
+                            <div className="flex gap-1">
+                              {note.tags.slice(0, 3).map(tag => (
+                                <span key={tag} className="text-purple-600 dark:text-purple-400">#{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => handleShareNote(note)}
-                        className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                      >
-                        <FaShareAlt />
-                        Share
-                      </button>
-                      <button
-                        onClick={() => handleDeleteNote(note._id)}
-                        className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      >
-                        <FaTrash />
-                        Delete
-                      </button>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                        <button
+                          onClick={() => handleAccessSharedNote(note)}
+                          className="px-3 py-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-xs font-bold rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+                        >
+                          Open
+                        </button>
+                        <button
+                          onClick={() => handleRemoveSharedNote(note._id)}
+                          className="p-2 bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                          title="Remove shared note"
+                        >
+                          <FaTrash size={12} />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to={`/note/${note._id}`}
-                      className="p-2 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                      title="View"
-                    >
-                      <FaEye />
-                    </Link>
-                    <Link
-                      to={`/note/${note._id}`}
-                      className="p-2 text-gray-600 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
-                      title="Edit"
-                    >
-                      <FaEdit />
-                    </Link>
-                  </div>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Title Modal for New Note */}
-      <TitleModal
-        isOpen={showTitleModal}
-        onClose={() => setShowTitleModal(false)}
-        onCreate={handleCreateNewNote}
-      />
-
-      {/* Master Password Prompt */}
-      {showPasswordPrompt && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                <FaLock className="text-white text-xl" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Unlock Encryption</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Enter your master password</p>
-              </div>
-            </div>
-            
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              Your master password is required to enable encryption features and access shared notes.
-            </p>
-            
-            <input
-              type="password"
-              value={masterPassword}
-              onChange={(e) => setMasterPassword(e.target.value)}
-              placeholder="Enter master password"
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white mb-4"
-              onKeyPress={(e) => e.key === 'Enter' && handlePasswordSubmit()}
-            />
-            
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowPasswordPrompt(false)}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePasswordSubmit}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 font-medium transition-all"
-              >
-                Unlock
-              </button>
-            </div>
+            )}
           </div>
         </div>
-      )}
+
+      </div>
+
+
+
+
 
       {shareModal && (
         <ShareModal

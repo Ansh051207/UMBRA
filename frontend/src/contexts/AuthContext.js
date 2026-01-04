@@ -26,7 +26,7 @@ export const AuthProvider = ({ children }) => {
     const initializeAuth = async () => {
       const storedToken = localStorage.getItem('token');
       console.log('🔍 Auth: Initializing with token:', storedToken ? 'Present' : 'Missing');
-      
+
       if (storedToken) {
         try {
           // Verify token is valid
@@ -58,26 +58,26 @@ export const AuthProvider = ({ children }) => {
       console.log('🔍 Auth: Attempting login for:', email);
       const response = await axios.post(`${API_URL}/auth/login`, { email, password });
       const { token, user } = response.data;
-      
+
       console.log('🔍 Auth: Login successful, token received');
-      
+
       // Store token
       localStorage.setItem('token', token);
-      
+
       // Set axios headers
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
+
       setUser(user);
       setToken(token);
-      
+
       console.log('🔍 Auth: User set and headers configured');
-      
-      return { success: true };
+
+      return { success: true, user };
     } catch (error) {
       console.error('🔍 Auth: Login error:', error.message);
-      return { 
-        success: false, 
-        error: error.response?.data?.error || 'Login failed' 
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Login failed'
       };
     }
   };
@@ -86,28 +86,28 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await axios.post(`${API_URL}/auth/register`, userData);
       const { token, user } = response.data;
-      
+
       // Store token
       localStorage.setItem('token', token);
-      
+
       // Set axios headers
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
+
       setUser(user);
       setToken(token);
-      
+
       return { success: true };
     } catch (error) {
       console.error('🔍 Auth: Registration error:', error);
-      
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.message ||
-                          error.response?.data?.errors?.[0]?.msg ||
-                          'Registration failed';
-      
-      return { 
-        success: false, 
-        error: errorMessage 
+
+      const errorMessage = error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.response?.data?.errors?.[0]?.msg ||
+        'Registration failed';
+
+      return {
+        success: false,
+        error: errorMessage
       };
     }
   };

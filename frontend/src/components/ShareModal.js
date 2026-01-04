@@ -10,8 +10,8 @@ const ShareModal = ({ note, onClose, onShare }) => {
   const [permission, setPermission] = useState('read');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
-  const { encryptWithPublicKey, generateKey } = useCrypto();
+
+  const { masterKey, encryptWithPublicKey } = useCrypto();
 
   useEffect(() => {
     if (searchQuery.length > 2) {
@@ -38,15 +38,24 @@ const ShareModal = ({ note, onClose, onShare }) => {
     setError('');
 
     try {
-      // Generate a symmetric key for this note
-      const noteKey = generateKey();
-      
-      // Encrypt the note key with recipient's public key
-      const encryptedKey = encryptWithPublicKey(noteKey, selectedUser.publicKey);
-      
+      if (!masterKey) {
+        throw new Error('Encryption keys are missing. Please log in again to share notes.');
+      }
+
+      if (!selectedUser.publicKey) {
+        throw new Error('This user has not set up encryption keys yet.');
+      }
+
+      console.log(`🔐 Encrypting key for user ${selectedUser.username}...`);
+
+      // Encrypt the master key with recipient's public key (MUST AWAIT)
+      const encryptedKey = await encryptWithPublicKey(masterKey, selectedUser.publicKey);
+
+      console.log('✅ Key encrypted, sending share request...');
+
       // Share the note
       await api.shareNote(note._id, {
-        toUserId: selectedUser._id,
+        userId: selectedUser._id,
         encryptedKey,
         permission
       });
@@ -54,7 +63,8 @@ const ShareModal = ({ note, onClose, onShare }) => {
       onShare();
       onClose();
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to share note');
+      console.error('❌ Share failed:', error);
+      setError(error.message || 'Failed to share note. The recipient might have invalid encryption keys.');
     } finally {
       setLoading(false);
     }
@@ -88,9 +98,8 @@ const ShareModal = ({ note, onClose, onShare }) => {
             {users.map(user => (
               <div
                 key={user._id}
-                className={`p-2 cursor-pointer hover:bg-gray-100 rounded ${
-                  selectedUser?._id === user._id ? 'bg-blue-50' : ''
-                }`}
+                className={`p-2 cursor-pointer hover:bg-gray-100 rounded ${selectedUser?._id === user._id ? 'bg-blue-50' : ''
+                  }`}
                 onClick={() => setSelectedUser(user)}
               >
                 <div className="font-medium">{user.username}</div>

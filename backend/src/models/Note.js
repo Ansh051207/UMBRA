@@ -48,7 +48,14 @@ const noteSchema = new mongoose.Schema({
     default: 1
   },
   previousVersions: [{
+    title: String,
     content: String,
+    isEncrypted: Boolean,
+    encryptionMetadata: {
+      algorithm: String,
+      iv: String,
+      salt: String
+    },
     version: Number,
     savedAt: Date
   }],
@@ -63,7 +70,7 @@ const noteSchema = new mongoose.Schema({
 });
 
 // Update timestamp before save
-noteSchema.pre('save', function(next) {
+noteSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });

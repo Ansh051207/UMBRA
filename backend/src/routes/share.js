@@ -28,13 +28,16 @@ router.post('/:noteId', auth, [
     // Check if note exists and user is owner
     const note = await Note.findOne({
       _id: noteId,
-      ownerId: req.user._id
+      $or: [
+        { ownerId: req.user._id },
+        { sharedWith: { $elemMatch: { userId: req.user._id, permission: 'write' } } }
+      ]
     });
 
     if (!note) {
       console.log(`❌ Note ${noteId} not found or user ${req.user._id} is not owner`);
-      return res.status(404).json({ 
-        error: 'Note not found or you are not the owner' 
+      return res.status(404).json({
+        error: 'Note not found or you are not the owner'
       });
     }
 
@@ -103,7 +106,7 @@ router.post('/:noteId', auth, [
     });
   } catch (error) {
     console.error('❌ Share note error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Server error while sharing note',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -116,16 +119,16 @@ router.get('/shared-with-me', auth, async (req, res) => {
     const sharedNotes = await Note.find({
       'sharedWith.userId': req.user._id
     })
-    .populate('ownerId', 'username email')
-    .select('title tags ownerId sharedWith createdAt updatedAt isEncrypted')
-    .sort({ updatedAt: -1 });
+      .populate('ownerId', 'username email')
+      .select('title tags ownerId sharedWith createdAt updatedAt isEncrypted')
+      .sort({ updatedAt: -1 });
 
     // Transform the response to include only relevant share info
     const transformedNotes = sharedNotes.map(note => {
-      const userShare = note.sharedWith.find(share => 
+      const userShare = note.sharedWith.find(share =>
         share.userId.toString() === req.user._id.toString()
       );
-      
+
       return {
         _id: note._id,
         title: note.title,
@@ -151,11 +154,18 @@ router.get('/key/:noteId/:fromUserId', auth, async (req, res) => {
   try {
     const { noteId, fromUserId } = req.params;
 
-    const shareKey = await ShareKey.findOne({
+    const query = {
       noteId,
-      fromUserId,
       toUserId: req.user._id
-    });
+    };
+
+    // If fromUserId is provided and not 'any', include it in query
+    if (fromUserId && fromUserId !== 'any' && fromUserId !== 'undefined') {
+      query.fromUserId = fromUserId;
+    }
+
+    // Sort by id descending to get the most recent share if multiple exist
+    const shareKey = await ShareKey.findOne(query).sort({ _id: -1 });
 
     if (!shareKey) {
       return res.status(404).json({ error: 'Share key not found' });
@@ -180,13 +190,29 @@ router.delete('/:noteId/:userId', auth, async (req, res) => {
 
     const note = await Note.findOne({
       _id: noteId,
-      ownerId: req.user._id
+      $or: [
+        { ownerId: req.user._id },
+        { 'sharedWith.userId': req.user._id }
+      ]
     });
 
     if (!note) {
-      return res.status(404).json({ 
-        error: 'Note not found or you are not the owner' 
+      return res.status(404).json({
+        error: 'Note not found or you are not authorized to modify its shares'
       });
+    }
+
+    // Check if the current user is removing themself
+    const isRemovingSelf = userId === req.user._id.toString();
+
+    // Check if the current user is the owner or has write permission to remove shares
+    const isOwner = note.ownerId.toString() === req.user._id.toString();
+    const hasWritePermission = note.sharedWith.some(
+      share => share.userId.toString() === req.user._id.toString() && share.permission === 'write'
+    );
+
+    if (!isOwner && !hasWritePermission && !isRemovingSelf) {
+      return res.status(403).json({ error: 'You do not have permission to remove shares for this note' });
     }
 
     // Check if share exists
@@ -214,7 +240,7 @@ router.delete('/:noteId/:userId', auth, async (req, res) => {
 
     console.log(`✅ Successfully removed share of note ${noteId} with user ${userId}`);
 
-    res.json({ 
+    res.json({
       message: 'Share removed successfully',
       noteId,
       removedUserId: userId
@@ -232,12 +258,15 @@ router.get('/:noteId/shares', auth, async (req, res) => {
 
     const note = await Note.findOne({
       _id: noteId,
-      ownerId: req.user._id
+      $or: [
+        { ownerId: req.user._id },
+        { 'sharedWith.userId': req.user._id }
+      ]
     }).populate('sharedWith.userId', 'username email _id');
 
     if (!note) {
-      return res.status(404).json({ 
-        error: 'Note not found or you are not the owner' 
+      return res.status(404).json({
+        error: 'Note not found or you are not the owner'
       });
     }
 

@@ -17,13 +17,13 @@ router.use((req, res, next) => {
 router.get('/search', auth, async (req, res) => {
   try {
     const { q } = req.query;
-    
+
     console.log('🔍 User search query:', q);
     console.log('🔍 Current user:', req.user._id);
-    
+
     if (!q || q.trim().length < 2) {
-      return res.status(400).json({ 
-        error: 'Search query must be at least 2 characters' 
+      return res.status(400).json({
+        error: 'Search query must be at least 2 characters'
       });
     }
 
@@ -39,15 +39,15 @@ router.get('/search', auth, async (req, res) => {
         { _id: { $ne: req.user._id } }
       ]
     })
-    .select('username email _id createdAt')
-    .limit(10);
+      .select('username email _id createdAt publicKey')
+      .limit(10);
 
     console.log(`✅ Found ${users.length} users for query: "${q}"`);
-    
+
     res.json(users);
   } catch (error) {
     console.error('❌ User search error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -59,11 +59,11 @@ router.get('/:id', auth, async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
       .select('username email _id createdAt');
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     res.json(user);
   } catch (error) {
     console.error('Get user error:', error);

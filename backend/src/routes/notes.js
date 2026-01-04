@@ -10,13 +10,10 @@ const router = express.Router();
 router.get('/', auth, async (req, res) => {
   try {
     const notes = await Note.find({
-      $or: [
-        { ownerId: req.user._id },
-        { 'sharedWith.userId': req.user._id }
-      ]
+      ownerId: req.user._id
     })
-    .select('-content -previousVersions') // Don't send encrypted content in listing
-    .sort({ updatedAt: -1 });
+      .select('-content -previousVersions') // Don't send encrypted content in listing
+      .sort({ updatedAt: -1 });
 
     res.json(notes);
   } catch (error) {
@@ -81,7 +78,7 @@ router.post('/', auth, [
     });
   } catch (error) {
     console.error('Create note error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -105,9 +102,10 @@ router.put('/:id', auth, [
       _id: req.params.id,
       $or: [
         { ownerId: req.user._id },
-        { 
-          'sharedWith.userId': req.user._id,
-          'sharedWith.permission': 'write'
+        {
+          sharedWith: {
+            $elemMatch: { userId: req.user._id, permission: 'write' }
+          }
         }
       ]
     });
@@ -119,7 +117,10 @@ router.put('/:id', auth, [
     // Save current version before updating
     if (req.body.content !== undefined && note.content !== req.body.content) {
       note.previousVersions.push({
+        title: note.title,
         content: note.content,
+        isEncrypted: note.isEncrypted,
+        encryptionMetadata: note.encryptionMetadata,
         version: note.version,
         savedAt: new Date()
       });
@@ -146,7 +147,7 @@ router.put('/:id', auth, [
     });
   } catch (error) {
     console.error('Update note error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -177,7 +178,10 @@ router.get('/:id/versions', auth, async (req, res) => {
   try {
     const note = await Note.findOne({
       _id: req.params.id,
-      ownerId: req.user._id // Only owner can view versions
+      $or: [
+        { ownerId: req.user._id },
+        { 'sharedWith.userId': req.user._id }
+      ]
     }).select('previousVersions version');
 
     if (!note) {
@@ -199,7 +203,14 @@ router.post('/:id/restore/:version', auth, async (req, res) => {
   try {
     const note = await Note.findOne({
       _id: req.params.id,
-      ownerId: req.user._id
+      $or: [
+        { ownerId: req.user._id },
+        {
+          sharedWith: {
+            $elemMatch: { userId: req.user._id, permission: 'write' }
+          }
+        }
+      ]
     });
 
     if (!note) {
@@ -216,13 +227,19 @@ router.post('/:id/restore/:version', auth, async (req, res) => {
 
     // Save current version
     note.previousVersions.push({
+      title: note.title,
       content: note.content,
+      isEncrypted: note.isEncrypted,
+      encryptionMetadata: note.encryptionMetadata,
       version: note.version,
       savedAt: new Date()
     });
 
     // Restore old version
+    if (versionToRestore.title) note.title = versionToRestore.title;
     note.content = versionToRestore.content;
+    note.isEncrypted = versionToRestore.isEncrypted || false;
+    note.encryptionMetadata = versionToRestore.encryptionMetadata;
     note.version += 1;
 
     await note.save();

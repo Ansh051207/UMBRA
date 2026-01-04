@@ -29,29 +29,30 @@ const SharedNotes = () => {
   };
 
   const handleAccessNote = async (note) => {
-      try {
-    if (!masterKey) {
-      setError('Please unlock encryption first');
-      return;
-    }
+    try {
+      if (!masterKey) {
+        setError('Please unlock encryption first');
+        return;
+      }
 
-    // Get the share key
-    const response = await api.getShareKey(note._id, note.ownerId._id);
-    const { encryptedKey } = response.data;
-    
-    // In a real implementation, we would decrypt the note key here
-    // For now, we'll store the encrypted key and handle decryption in NoteEditor
-    localStorage.setItem(`share_key_${note._id}`, JSON.stringify({
-      encryptedKey,
-      fromUserId: note.ownerId._id
-    }));
-    
-    // Navigate to note
-    window.location.href = `/note/${note._id}`;
-  } catch (error) {
-    console.error('Failed to access note:', error);
-    setError('Failed to access shared note');
-  }
+      // Get the share key
+      const ownerId = note.owner?._id || note.owner;
+      const response = await api.getShareKey(note._id, ownerId);
+      const { encryptedKey } = response.data;
+
+      // In a real implementation, we would decrypt the note key here
+      // For now, we'll store the encrypted key and handle decryption in NoteEditor
+      localStorage.setItem(`share_key_${note._id}`, JSON.stringify({
+        encryptedKey,
+        fromUserId: note.owner?._id || note.owner
+      }));
+
+      // Navigate to note
+      window.location.href = `/note/${note._id}`;
+    } catch (error) {
+      console.error('Failed to access note:', error);
+      setError('Failed to access shared note');
+    }
   };
 
   if (loading) {
@@ -101,15 +102,15 @@ const SharedNotes = () => {
                   )}
                 </div>
               </div>
-              
+
               <div className="text-sm text-gray-500 mb-2">
-                From: {note.ownerId?.username || 'Unknown'}
+                From: {note.owner?.username || 'Unknown'}
               </div>
-              
+
               <div className="text-sm text-gray-500 mb-3">
                 Shared: {new Date(note.updatedAt).toLocaleDateString()}
               </div>
-              
+
               {note.tags && note.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-4">
                   {note.tags.map(tag => (
@@ -119,7 +120,7 @@ const SharedNotes = () => {
                   ))}
                 </div>
               )}
-              
+
               <button
                 onClick={() => handleAccessNote(note)}
                 className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"

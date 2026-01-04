@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { FaLock, FaEnvelope, FaGithub, FaGoogle, FaArrowRight } from 'react-icons/fa';
+import { useCrypto } from '../contexts/CryptoContext';
+import { importEncryptedData } from '../utils/cryptoUtils';
+import { FaLock, FaEnvelope, FaArrowRight } from 'react-icons/fa';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  
+
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { deriveKeyFromPassword, setMasterKey, setPrivateKey } = useCrypto();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,19 +21,38 @@ const Login = () => {
     setLoading(true);
 
     const result = await login(email, password);
-    
+
     if (result.success) {
+      // Auto-restore keys on successful login
+      try {
+        // 1. Derive Master Key
+        const derivedKey = deriveKeyFromPassword(password, 'master-salt');
+        setMasterKey(derivedKey);
+        console.log('✅ Master key derived from login password');
+
+        // 2. Decrypt Private Key if available
+        if (result.user && result.user.encryptedPrivateKey) {
+          try {
+            const encryptedKP = JSON.parse(result.user.encryptedPrivateKey);
+            const privateKeyPEM = importEncryptedData(encryptedKP, password);
+            setPrivateKey(privateKeyPEM);
+            console.log('✅ Private key decrypted and cached');
+          } catch (pkError) {
+            console.warn('Failed to decrypt private key with login password:', pkError);
+          }
+        }
+      } catch (keyError) {
+        console.error('Failed to restore keys on login:', keyError);
+      }
+
       navigate('/');
     } else {
       setError(result.error);
     }
-    
+
     setLoading(false);
   };
 
-  const handleSocialLogin = (provider) => {
-    setError(`${provider} login coming soon!`);
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 p-4">
@@ -111,28 +132,6 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Remember me & Forgot password */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                  Remember me
-                </label>
-              </div>
-              <button
-                type="button"
-                className="text-sm font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                Forgot password?
-              </button>
-            </div>
 
             {/* Submit button */}
             <div>
@@ -155,38 +154,6 @@ const Login = () => {
               </button>
             </div>
 
-            {/* Social login */}
-            <div className="mt-6">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleSocialLogin('Google')}
-                  className="w-full inline-flex justify-center items-center py-3 px-4 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
-                  <FaGoogle className="w-5 h-5 mr-2 text-red-500" />
-                  Google
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSocialLogin('GitHub')}
-                  className="w-full inline-flex justify-center items-center py-3 px-4 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
-                  <FaGithub className="w-5 h-5 mr-2" />
-                  GitHub
-                </button>
-              </div>
-            </div>
 
             {/* Sign up link */}
             <div className="text-center mt-6">

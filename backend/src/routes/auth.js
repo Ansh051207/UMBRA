@@ -30,7 +30,7 @@ router.post('/register', [
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       console.log('Validation errors:', errors.array());
-      return res.status(400).json({ 
+      return res.status(400).json({
         errors: errors.array(),
         error: errors.array()[0]?.msg || 'Validation failed'
       });
@@ -41,14 +41,14 @@ router.post('/register', [
     console.log('Registration attempt:', { username, email, hasPassword: !!password });
 
     // Check if user exists
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }] 
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username }]
     });
 
     if (existingUser) {
       console.log('User already exists:', { email, username });
-      return res.status(400).json({ 
-        error: 'User with this email or username already exists' 
+      return res.status(400).json({
+        error: 'User with this email or username already exists'
       });
     }
 
@@ -82,7 +82,7 @@ router.post('/register', [
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Server error during registration',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -144,7 +144,8 @@ router.get('/me', auth, async (req, res) => {
       id: req.user._id,
       username: req.user.username,
       email: req.user.email,
-      publicKey: req.user.publicKey
+      publicKey: req.user.publicKey,
+      encryptedPrivateKey: req.user.encryptedPrivateKey
     }
   });
 });
@@ -153,15 +154,15 @@ router.get('/me', auth, async (req, res) => {
 router.get('/search', auth, async (req, res) => {
   try {
     const { q } = req.query;
-    
+
     if (!q || q.trim().length < 2) {
-      return res.status(400).json({ 
-        error: 'Search query must be at least 2 characters long' 
+      return res.status(400).json({
+        error: 'Search query must be at least 2 characters long'
       });
     }
 
     console.log('🔍 Searching users with query:', q);
-    
+
     // Search for users by username or email (excluding current user)
     const users = await User.find({
       $and: [
@@ -174,15 +175,15 @@ router.get('/search', auth, async (req, res) => {
         { _id: { $ne: req.user._id } } // Exclude current user
       ]
     })
-    .select('username email _id createdAt') // Only return necessary fields
-    .limit(10); // Limit results
+      .select('username email _id createdAt publicKey') // Only return necessary fields
+      .limit(10); // Limit results
 
     console.log('✅ Found users:', users.length);
-    
+
     res.json(users);
   } catch (error) {
     console.error('❌ User search error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Server error during user search',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -191,8 +192,8 @@ router.get('/search', auth, async (req, res) => {
 
 // Add this route to your auth.js file
 router.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     message: 'Backend server is running',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
