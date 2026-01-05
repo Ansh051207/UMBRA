@@ -3,8 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   FaSave, FaTimes, FaHistory, FaLock, FaKey,
   FaBold, FaItalic, FaUnderline, FaListUl, FaListOl,
-  FaHeading, FaCode, FaLink, FaImage, FaQuoteLeft,
-  FaExpand, FaCompress,
+  FaHeading, FaCode, FaLink, FaQuoteLeft,
+  FaExpand, FaCompress, FaDownload,
   FaShareAlt, FaUserFriends, FaSearch,
   FaUserPlus, FaUserCheck, FaUserTimes, FaSpinner,
   FaTimesCircle, FaCheckCircle, FaEdit, FaEye, FaShieldAlt
@@ -862,6 +862,17 @@ const NoteEditor = () => {
     }
   };
 
+  const downloadNote = () => {
+    if (!content) return;
+    const element = document.createElement("a");
+    const file = new Blob([content], { type: 'text/markdown' });
+    element.href = URL.createObjectURL(file);
+    element.download = `${title || 'Untitled'}.md`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
   const handleRestoreVersion = async (version) => {
     if (window.confirm(`Restore to version ${version}?`)) {
       try {
@@ -886,69 +897,111 @@ const NoteEditor = () => {
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
+    const selection = content.substring(start, end);
 
-    let formattedText = '';
-    let cursorOffset = 0;
+    let prefix = '';
+    let suffix = '';
+    let replacement = selection;
+    let newCursorStart = start;
+    let newCursorEnd = end;
 
     switch (command) {
       case 'bold':
-        formattedText = `**${selectedText}**`;
-        cursorOffset = selectedText ? 2 : 0;
+        if (selection.startsWith('**') && selection.endsWith('**')) {
+          replacement = selection.slice(2, -2);
+        } else {
+          prefix = '**';
+          suffix = '**';
+        }
         break;
       case 'italic':
-        formattedText = `*${selectedText}*`;
-        cursorOffset = selectedText ? 1 : 0;
+        if (selection.startsWith('*') && selection.endsWith('*')) {
+          replacement = selection.slice(1, -1);
+        } else {
+          prefix = '*';
+          suffix = '*';
+        }
         break;
       case 'underline':
-        formattedText = `<u>${selectedText}</u>`;
-        cursorOffset = selectedText ? 3 : 0;
+        if (selection.startsWith('<u>') && selection.endsWith('</u>')) {
+          replacement = selection.slice(3, -4);
+        } else {
+          prefix = '<u>';
+          suffix = '</u>';
+        }
         break;
       case 'heading':
         const level = value || 1;
-        formattedText = `${'#'.repeat(level)} ${selectedText}`;
-        cursorOffset = selectedText ? level + 1 : 0;
+        const hPrefix = '#'.repeat(level) + ' ';
+        if (selection.startsWith(hPrefix)) {
+          replacement = selection.slice(hPrefix.length);
+        } else {
+          replacement = hPrefix + selection;
+        }
         break;
       case 'bullet':
-        formattedText = selectedText ? `\n- ${selectedText}` : `\n- `;
-        cursorOffset = selectedText ? 3 : 2;
+        const lines = selection.split('\n');
+        const isBullet = lines.every(line => line.startsWith('- '));
+        if (isBullet && selection.length > 0) {
+          replacement = lines.map(line => line.substring(2)).join('\n');
+        } else {
+          replacement = lines.map(line => `- ${line}`).join('\n');
+        }
         break;
       case 'numbered':
-        formattedText = selectedText ? `\n1. ${selectedText}` : `\n1. `;
-        cursorOffset = selectedText ? 4 : 3;
-        break;
-      case 'code':
-        formattedText = selectedText ? `\`\`\`\n${selectedText}\n\`\`\`` : `\`\`\`\n\`\`\``;
-        cursorOffset = selectedText ? 4 : 4;
+        const numLines = selection.split('\n');
+        const isNum = numLines.every((line, i) => line.startsWith(`${i + 1}. `));
+        if (isNum && selection.length > 0) {
+          replacement = numLines.map(line => line.substring(line.indexOf('.') + 2)).join('\n');
+        } else {
+          replacement = numLines.map((line, i) => `${i + 1}. ${line}`).join('\n');
+        }
         break;
       case 'inlineCode':
-        formattedText = `\`${selectedText}\``;
-        cursorOffset = selectedText ? 1 : 0;
+        if (selection.startsWith('`') && selection.endsWith('`')) {
+          replacement = selection.slice(1, -1);
+        } else {
+          prefix = '`';
+          suffix = '`';
+        }
+        break;
+      case 'code':
+        if (selection.startsWith('```\n') && selection.endsWith('\n```')) {
+          replacement = selection.slice(4, -4);
+        } else {
+          prefix = '```\n';
+          suffix = '\n```';
+        }
         break;
       case 'quote':
-        formattedText = selectedText ? `> ${selectedText}` : `> `;
-        cursorOffset = selectedText ? 2 : 2;
+        const qLines = selection.split('\n');
+        const isQuote = qLines.every(line => line.startsWith('> '));
+        if (isQuote && selection.length > 0) {
+          replacement = qLines.map(line => line.substring(2)).join('\n');
+        } else {
+          replacement = qLines.map(line => `> ${line}`).join('\n');
+        }
         break;
       case 'link':
-        formattedText = `[${selectedText || 'link text'}](https://example.com)`;
-        cursorOffset = selectedText ? 0 : 11;
-        break;
-      case 'image':
-        formattedText = `![${selectedText || 'alt text'}](https://example.com/image.jpg)`;
-        cursorOffset = selectedText ? 0 : 28;
+        replacement = `[${selection || 'link text'}](https://example.com)`;
         break;
       default:
-        formattedText = selectedText;
+        break;
     }
 
-    const newContent = content.substring(0, start) + formattedText + content.substring(end);
+    const newContent = content.substring(0, start) + prefix + replacement + suffix + content.substring(end);
     setContent(newContent);
 
-    // Focus back on textarea and position cursor
+    // Maintain selection or place cursor correctly
+    const finalReplacement = prefix + replacement + suffix;
     setTimeout(() => {
       textarea.focus();
-      const newCursorPos = start + formattedText.length - (selectedText ? 0 : cursorOffset);
-      textarea.setSelectionRange(newCursorPos, newCursorPos);
+      if (selection) {
+        textarea.setSelectionRange(start, start + finalReplacement.length);
+      } else {
+        const pos = start + prefix.length;
+        textarea.setSelectionRange(pos, pos);
+      }
     }, 0);
   };
 
@@ -982,18 +1035,69 @@ const NoteEditor = () => {
   };
 
   const renderPreview = () => {
-    // Simple markdown rendering
-    let preview = content
-      .replace(/^# (.*$)/gim, '<h1 class="text-3xl font-bold mb-4">$1</h1>')
-      .replace(/^## (.*$)/gim, '<h2 class="text-2xl font-bold mb-3">$2</h2>')
-      .replace(/^### (.*$)/gim, '<h3 class="text-xl font-bold mb-2">$3</h3>')
-      .replace(/\*\*(.*)\*\*/gim, '<strong class="font-bold">$1</strong>')
-      .replace(/\*(.*)\*/gim, '<em class="italic">$1</em>')
-      .replace(/`(.*?)`/g, '<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm font-mono">$1</code>')
-      .replace(/^- (.*$)/gim, '<li class="ml-4">$1</li>')
-      .replace(/\n/g, '<br />');
+    if (!content) return { __html: '' };
 
-    return { __html: preview };
+    // 1. Escape basic HTML for security
+    let html = content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // 2. Unescape specific constructs
+    html = html.replace(/^&gt; /gim, '> ');
+
+    // 3. Block elements
+    html = html
+      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+      .replace(/^#### (.*$)/gim, '<h4>$1</h4>')
+      .replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>')
+      .replace(/^\d+\. (.*$)/gim, '<ol><li>$1</li></ol>')
+      .replace(/^- (.*$)/gim, '<ul><li>$1</li></ul>')
+      .replace(/^---$/gim, '<hr />');
+
+    // 4. Handle Code Blocks
+    html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900 text-slate-300 p-5 rounded-xl my-6 overflow-x-auto border border-slate-800 shadow-lg"><code>$1</code></pre>');
+
+    // 5. Inline elements
+    html = html
+      .replace(/\*\*\*(.*?)\*\*\*/gim, '<strong><em>$1</em></strong>')
+      .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+      .replace(/__(.*?)__/gim, '<strong>$1</strong>')
+      .replace(/_(.*?)_/gim, '<em>$1</em>')
+      .replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/gim, '<span style="text-decoration: underline;">$1</span>')
+      .replace(/`(.*?)`/g, '<code class="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-sm font-mono text-pink-500">$1</code>')
+      .replace(/\[(.*?)\]\((.*?)\)/gim, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 underline decoration-blue-500/30 underline-offset-4 hover:decoration-blue-500 font-medium">$1</a>');
+
+    // 7. Clean up adjacent list items
+    html = html.replace(/<\/ul>\s*<ul>/g, '');
+    html = html.replace(/<\/ol>\s*<ol>/g, '');
+
+    // 8. Paragraph wrapping
+    const lines = html.split('\n');
+    let inPre = false;
+    const processedLines = lines.map(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return '<br />';
+
+      if (trimmed.includes('<pre')) inPre = true;
+      if (trimmed.includes('</pre>')) {
+        inPre = false;
+        return line;
+      }
+      if (inPre) return line;
+
+      // Exclude block-level tags from P wrapping
+      if (trimmed.match(/^<(h|block|ul|ol|li|pre|hr|div)/i) || trimmed.match(/<\/(ul|ol|blockquote)>/i)) {
+        return line;
+      }
+
+      return `<p>${line}</p>`;
+    });
+
+    return { __html: processedLines.join('\n') };
   };
 
   // Show loading while auth is initializing OR note is loading
@@ -1266,6 +1370,15 @@ const NoteEditor = () => {
             </button>
           )}
           <button
+            onClick={downloadNote}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
+            disabled={!content || authLoading}
+            title="Download as Markdown"
+          >
+            <FaDownload />
+            <span>Download .md</span>
+          </button>
+          <button
             onClick={() => navigate('/')}
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
             disabled={authLoading}
@@ -1306,9 +1419,9 @@ const NoteEditor = () => {
 
 
       {/* Enhanced formatting toolbar */}
-      <div className="mb-6 bg-gradient-to-r from-gray-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="mb-6 glass rounded-xl p-4 shadow-sm animate-fade-in">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 mr-2">Format:</span>
+          <span className="text-sm font-bold text-slate-500 dark:text-slate-400 mr-2 uppercase tracking-wider">Format</span>
 
           {/* Headings */}
           <div className="flex items-center bg-white dark:bg-gray-800 rounded-lg p-1 shadow-inner">
@@ -1426,14 +1539,6 @@ const NoteEditor = () => {
             >
               <FaLink className="text-gray-600 dark:text-gray-400" />
             </button>
-            <button
-              onClick={() => formatText('image')}
-              className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Insert Image"
-              disabled={!canEdit || saving}
-            >
-              <FaImage className="text-gray-600 dark:text-gray-400" />
-            </button>
           </div>
 
           {/* Keyboard shortcuts hint */}
@@ -1454,15 +1559,16 @@ const NoteEditor = () => {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="w-full min-h-[500px] border-2 border-gray-300 dark:border-gray-600 rounded-xl p-6 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-base resize-y transition-all bg-white dark:bg-gray-900 dark:text-white"
+              className="w-full border-2 border-slate-200 dark:border-slate-800 rounded-xl p-6 pb-20 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono text-base resize-none transition-all bg-white dark:bg-slate-900 dark:text-white"
               placeholder={isNewNote
                 ? "Start typing your new note here... Use Markdown for formatting: # Headings, **bold**, *italic*, `code`, - lists, etc."
                 : "Start typing your note here... Use Markdown for formatting: # Headings, **bold**, *italic*, `code`, - lists, etc."}
               style={{
                 lineHeight: '1.6',
                 fontSize: '16px',
+                height: 'calc(100vh - 400px)',
                 minHeight: '500px',
-                maxHeight: 'calc(100vh - 300px)'
+                overflowY: 'auto'
               }}
               disabled={!canEdit || saving}
             />
@@ -1483,15 +1589,21 @@ const NoteEditor = () => {
         {/* Preview */}
         {showPreview && (
           <div className="lg:col-span-1">
-            <div className="border-2 border-gray-300 dark:border-gray-600 rounded-xl p-6 min-h-[500px] bg-white dark:bg-gray-900 overflow-auto">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Preview</h3>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  Live Markdown Preview
+            <div
+              className="border-2 border-slate-200 dark:border-slate-800 rounded-xl p-6 bg-white dark:bg-slate-900 overflow-y-auto scrollbar-hide"
+              style={{
+                height: 'calc(100vh - 400px)',
+                minHeight: '500px'
+              }}
+            >
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Preview</h3>
+                <div className="text-xs font-bold text-blue-500 uppercase tracking-widest">
+                  Live View
                 </div>
               </div>
               <div
-                className="prose dark:prose-invert max-w-none markdown-preview"
+                className="max-w-none markdown-preview animate-fade-in pb-12"
                 dangerouslySetInnerHTML={renderPreview()}
               />
               {!content && (

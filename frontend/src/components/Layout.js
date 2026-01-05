@@ -142,7 +142,7 @@ const Layout = ({ children }) => {
               </span>
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400 text-center md:text-right">
-              <p>© 2024 Umbra Notes. All rights reserved.</p>
+              <p> {new Date().getFullYear()} Umbra Notes. All rights reserved.</p>
               <p className="mt-1">Your notes are encrypted and secure.</p>
             </div>
           </div>
