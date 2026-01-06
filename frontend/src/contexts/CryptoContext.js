@@ -115,11 +115,7 @@ export const CryptoProvider = ({ children }) => {
       throw new Error(`Missing ${type} key data`);
     }
 
-    // ROBUST: Remove ALL dashes and the words between them (headers/footers)
-    // and all whitespace. This handles:
-    // -----BEGIN PUBLIC KEY-----
-    // -----BEGIN RSA PUBLIC KEY-----
-    // and any other variation
+
     const base64 = pem
       .replace(/-----BEGIN.*?-----/g, '')
       .replace(/-----END.*?-----/g, '')

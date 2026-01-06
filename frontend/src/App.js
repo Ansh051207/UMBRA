@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { CryptoProvider } from './contexts/CryptoContext';
@@ -8,8 +7,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import NoteEditor from './pages/NoteEditor';
-import SharedNotes from './pages/SharedNotes';
-import DebugAuth from './pages/DebugAuth';
+
 
 function App() {
   return (
@@ -17,8 +15,7 @@ function App() {
       <AuthProvider>
         <CryptoProvider>
           <Routes>
-            // In App.js, add this route
-<Route path="/debug-auth" element={<DebugAuth />} />
+
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/" element={
@@ -42,15 +39,9 @@ function App() {
                 </Layout>
               </PrivateRoute>
             } />
-            <Route path="/shared" element={
-              <PrivateRoute>
-                <Layout>
-                  <SharedNotes />
-                </Layout>
-              </PrivateRoute>
-            } />
+
             <Route path="*" element={<Navigate to="/" replace />} />
-      
+
           </Routes>
         </CryptoProvider>
       </AuthProvider>

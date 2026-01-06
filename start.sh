@@ -1,9 +1,9 @@
 #!/bin/bash
 
-echo "🚀 Starting Umbra Application..."
+echo "Starting Umbra Application..."
 
 # Start MongoDB (if not running)
-echo "📦 Checking MongoDB..."
+echo " Checking MongoDB..."
 if ! pgrep -x "mongod" > /dev/null; then
     echo "Starting MongoDB..."
     mongod --dbpath /usr/local/var/mongodb &
@@ -11,7 +11,7 @@ if ! pgrep -x "mongod" > /dev/null; then
 fi
 
 # Start Backend
-echo "🔧 Starting Backend..."
+echo "Starting Backend..."
 cd backend
 npm install
 npm run dev &
@@ -19,11 +19,11 @@ BACKEND_PID=$!
 cd ..
 
 # Wait for backend to start
-echo "⏳ Waiting for backend to start..."
+echo " Waiting for backend to start..."
 sleep 5
 
 # Start Frontend
-echo "🎨 Starting Frontend..."
+echo " Starting Frontend..."
 cd frontend
 npm install
 npm start

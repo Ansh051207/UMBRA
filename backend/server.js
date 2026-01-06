@@ -48,8 +48,8 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/umbra', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-  .then(() => console.log('✅ MongoDB connected'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error(' MongoDB connection error:', err));
 
 // 6. Routes
 app.use('/api/users', userRoutes);
@@ -66,17 +66,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Test endpoint
-app.get('/api/test', (req, res) => {
-  res.json({
-    message: 'Backend is working!',
-    timestamp: new Date().toISOString()
-  });
-});
+
 
 // 7. Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('🔥 Error:', err.stack);
+  console.error(' Error:', err.stack);
   res.status(err.status || 500).json({
     message: err.message || 'Internal server error',
     error: process.env.NODE_ENV === 'development' ? err : {}
@@ -85,7 +79,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 Health check: http://localhost:${PORT}/health`);
-  console.log(`🧪 Test endpoint: http://localhost:${PORT}/api/test`);
+  console.log(` Server running on port ${PORT}`);
+  console.log(` Health check: http://localhost:${PORT}/health`);
+
 });

@@ -15,11 +15,11 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    console.log('📡 API Request:', config.method?.toUpperCase(), config.url);
+    console.log(' API Request:', config.method?.toUpperCase(), config.url);
     return config;
   },
   (error) => {
-    console.error('📡 API Request Error:', error);
+    console.error(' API Request Error:', error);
     return Promise.reject(error);
   }
 );
@@ -27,11 +27,11 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
-    console.log('✅ API Response:', response.status, response.config.url);
+    console.log(' API Response:', response.status, response.config.url);
     return response;
   },
   (error) => {
-    console.error('📡 API Response Error:', {
+    console.error(' API Response Error:', {
       url: error.config?.url,
       method: error.config?.method,
       status: error.response?.status,
@@ -41,7 +41,7 @@ api.interceptors.response.use(
     
     // Handle 401 Unauthorized
     if (error.response?.status === 401) {
-      console.log('🔍 API: Got 401, clearing token');
+      console.log(' API: Got 401, clearing token');
       localStorage.removeItem('token');
       delete api.defaults.headers.common['Authorization'];
       

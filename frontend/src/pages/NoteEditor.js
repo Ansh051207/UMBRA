@@ -36,6 +36,7 @@ const NoteEditor = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [canEdit, setCanEdit] = useState(isNewNote); // New state to control editability
   const [sessionNoteKey, setSessionNoteKey] = useState(null); // Key used for current note encryption/decryption
+  const [restoreConfirmVersion, setRestoreConfirmVersion] = useState(null); // State for restore confirmation modal
 
   const [isOwner, setIsOwner] = useState(false);
   const showPreview = true;
@@ -192,7 +193,7 @@ const NoteEditor = () => {
 
 
     // Check backend status
-    // checkBackendStatus(); // Removed as part of debug panel removal
+
   }, [isAuthenticated, user, authLoading, id, isNewNote]);
 
   useEffect(() => {
@@ -260,8 +261,7 @@ const NoteEditor = () => {
 
       setLoading(true);
       setError('');
-      // setApiError(null); // Removed as part of debug panel removal
-      // setApiResponse(null); // Removed as part of debug panel removal
+
 
       console.log('🔍 NoteEditor: Fetching note with ID:', id);
       console.log('🔍 NoteEditor: User ID:', user?._id);
@@ -289,7 +289,7 @@ const NoteEditor = () => {
       console.log('🔍 NoteEditor: Note fetched successfully:', response.data);
 
       const note = response.data;
-      // setApiResponse(note); // Removed as part of debug panel removal
+
 
       // Check if note is actually returned
       if (!note) {
@@ -433,12 +433,7 @@ const NoteEditor = () => {
         }
       });
 
-      // setApiError({ // Removed as part of debug panel removal
-      //   status: error.response?.status,
-      //   statusText: error.response?.statusText,
-      //   data: error.response?.data,
-      //   message: error.message
-      // });
+
 
       if (error.response?.status === 401) {
         setError('Session expired. Please log in again.');
@@ -873,22 +868,39 @@ const NoteEditor = () => {
     document.body.removeChild(element);
   };
 
-  const handleRestoreVersion = async (version) => {
-    if (window.confirm(`Restore to version ${version}?`)) {
-      try {
-        setSaving(true);
-        await api.restoreVersion(id, version);
-        await fetchNote();
-        setShowHistory(false);
-        alert('Version restored successfully!');
-      } catch (error) {
-        console.error('Restore error:', error);
-        alert('Failed to restore version: ' + (error.response?.data?.error || error.message));
-      } finally {
-        setSaving(false);
-      }
+  const handleRestoreVersion = (version, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setRestoreConfirmVersion(version);
+  };
+
+  const executeRestore = async () => {
+    if (!restoreConfirmVersion) return;
+
+    try {
+      console.log(`RESTORING version ${restoreConfirmVersion}...`);
+      setSaving(true);
+      const res = await api.restoreVersion(id, restoreConfirmVersion);
+      console.log('RESTORE RESPONSE:', res.data);
+
+      console.log('FETCHING updated note...');
+      await fetchNote();
+
+      setShowHistory(false);
+      setRestoreConfirmVersion(null);
+      alert('Version restored successfully!');
+    } catch (error) {
+      console.error('Restore error:', error);
+      const errorMsg = error.response?.data?.error || error.message;
+      alert('Failed to restore version: ' + errorMsg);
+    } finally {
+      setSaving(false);
     }
   };
+
+
 
   // Enhanced formatting functions
   const formatText = (command, value = null) => {
@@ -1378,6 +1390,7 @@ const NoteEditor = () => {
             <FaDownload />
             <span>Download .md</span>
           </button>
+
           <button
             onClick={() => navigate('/')}
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2 transition-colors text-gray-700 dark:text-gray-300"
@@ -1713,7 +1726,7 @@ const NoteEditor = () => {
                         </div>
                       </div>
                       <button
-                        onClick={() => handleRestoreVersion(version.version)}
+                        onClick={(e) => handleRestoreVersion(version.version, e)}
                         className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 font-medium transition-all whitespace-nowrap"
                       >
                         Restore This Version
@@ -1722,6 +1735,42 @@ const NoteEditor = () => {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Restore Confirmation Modal */}
+      {restoreConfirmVersion && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-fade-in border border-gray-200 dark:border-gray-700">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Confirm Restore</h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              Are you sure you want to restore to version <strong>{restoreConfirmVersion}</strong>?
+              <br /><br />
+              Your current changes will be saved as a new version before restoring.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setRestoreConfirmVersion(null)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeRestore}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                disabled={saving}
+              >
+                {saving ? (
+                  <>
+                    <FaSpinner className="animate-spin" />
+                    Restoring...
+                  </>
+                ) : (
+                  'Yes, Restore'
+                )}
+              </button>
             </div>
           </div>
         </div>

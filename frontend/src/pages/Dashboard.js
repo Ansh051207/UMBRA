@@ -4,17 +4,15 @@ import {
   FaPlus,
   FaSearch,
   FaLock,
-  FaUnlock,
   FaFilter,
   FaSort,
   FaTrash,
   FaShareAlt,
-  FaEye,
-  FaEdit,
-  FaStickyNote
+  FaStickyNote,
+  FaSpinner
 } from 'react-icons/fa';
 import api from '../services/api';
-// import NoteList from '../NotesList';
+
 import ShareModal from '../components/ShareModal';
 
 import { useCrypto } from '../contexts/CryptoContext';
@@ -31,6 +29,8 @@ const Dashboard = () => {
   const [sortBy, setSortBy] = useState('updatedAt');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedTags, setSelectedTags] = useState([]);
+  const [noteToDelete, setNoteToDelete] = useState(null); // { id: string, type: 'own' | 'shared', title: string }
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
 
   const { masterKey, setMasterKey, deriveKeyFromPassword } = useCrypto();
@@ -131,28 +131,38 @@ const Dashboard = () => {
 
 
 
-  const handleDeleteNote = async (noteId) => {
-    if (window.confirm('Are you sure you want to delete this note? This action cannot be undone.')) {
-      try {
-        await api.deleteNote(noteId);
-        fetchNotes();
-      } catch (error) {
-        console.error('Failed to delete note:', error);
-        alert('Failed to delete note');
-      }
-    }
+
+
+  // ... (useEffect hooks remain same)
+
+  // ... (fetchNotes and handleAccessSharedNote remain same)
+
+  const handleDeleteNote = (note) => {
+    setNoteToDelete({ id: note._id, type: 'own', title: note.title });
   };
 
-  const handleRemoveSharedNote = async (noteId) => {
-    if (window.confirm('Are you sure you want to remove this shared note? You will no longer have access to it.')) {
-      try {
+  const handleRemoveSharedNote = (note) => {
+    setNoteToDelete({ id: note._id, type: 'shared', title: note.title });
+  };
+
+  const executeDelete = async () => {
+    if (!noteToDelete) return;
+
+    try {
+      setDeleteLoading(true);
+      if (noteToDelete.type === 'own') {
+        await api.deleteNote(noteToDelete.id);
+      } else {
         const currentUserId = user?._id || user?.id;
-        await api.removeShare(noteId, currentUserId);
-        fetchNotes();
-      } catch (error) {
-        console.error('Failed to remove shared note:', error);
-        alert('Failed to remove shared note');
+        await api.removeShare(noteToDelete.id, currentUserId);
       }
+      fetchNotes();
+      setNoteToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete/remove note:', error);
+      alert('Failed to delete/remove note');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -350,7 +360,7 @@ const Dashboard = () => {
                           <FaShareAlt size={14} />
                         </button>
                         <button
-                          onClick={() => handleDeleteNote(note._id)}
+                          onClick={() => handleDeleteNote(note)}
                           className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
                           title="Delete"
                         >
@@ -431,7 +441,7 @@ const Dashboard = () => {
                           Open
                         </button>
                         <button
-                          onClick={() => handleRemoveSharedNote(note._id)}
+                          onClick={() => handleRemoveSharedNote(note)}
                           className="p-2 bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                           title="Remove shared note"
                         >
@@ -451,6 +461,57 @@ const Dashboard = () => {
 
 
 
+
+      {noteToDelete && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-fade-in border border-gray-200 dark:border-gray-700">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+              {noteToDelete.type === 'own' ? 'Delete Note' : 'Remove Shared Note'}
+            </h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              {noteToDelete.type === 'own' ? (
+                <>
+                  Are you sure you want to delete <strong>"{noteToDelete.title}"</strong>?
+                  <br /><br />
+                  This action cannot be undone.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to remove <strong>"{noteToDelete.title}"</strong> from your shared notes?
+                  <br /><br />
+                  You will no longer have access to this note.
+                </>
+              )}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setNoteToDelete(null)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeDelete}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 transition-colors"
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? (
+                  <>
+                    <FaSpinner className="animate-spin" />
+                    {noteToDelete.type === 'own' ? 'Deleting...' : 'Removing...'}
+                  </>
+                ) : (
+                  <>
+                    <FaTrash size={14} />
+                    {noteToDelete.type === 'own' ? 'Delete' : 'Remove'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {shareModal && (
         <ShareModal
