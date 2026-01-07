@@ -1,4 +1,4 @@
-# Umbra - Zero-Knowledge Encrypted Notes & File Sharing
+# Umbra - Zero-Knowledge Encrypted Notes Sharing
 
 **Umbra** is a state-of-the-art secure workspace application designed with a "Privacy First" architecture. It employs **Zero-Knowledge Encryption**, meaning your data is encrypted on your device before it ever reaches our servers. Even as service providers, we literally *cannot* read your notes or files.
 
@@ -119,3 +119,5 @@ https://drive.google.com/file/d/1CvvgogJJU5txCK-GwxLTwsGiNCuKAyXi/view?usp=shari
 2. Youtube Channels
 - Chai aur Code
 - CodeWithHarry
+3. Website
+- w3schools
