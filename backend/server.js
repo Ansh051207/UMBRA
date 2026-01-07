@@ -28,7 +28,7 @@ app.options('*', cors());
 
 // 2. Logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+
   next();
 });
 

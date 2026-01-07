@@ -29,7 +29,7 @@ router.post('/register', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('Validation errors:', errors.array());
+
       return res.status(400).json({
         errors: errors.array(),
         error: errors.array()[0]?.msg || 'Validation failed'
@@ -38,7 +38,7 @@ router.post('/register', [
 
     const { username, email, password, publicKey, encryptedPrivateKey } = req.body;
 
-    console.log('Registration attempt:', { username, email, hasPassword: !!password });
+
 
     // Check if user exists
     const existingUser = await User.findOne({
@@ -46,7 +46,7 @@ router.post('/register', [
     });
 
     if (existingUser) {
-      console.log('User already exists:', { email, username });
+
       return res.status(400).json({
         error: 'User with this email or username already exists'
       });
@@ -62,7 +62,7 @@ router.post('/register', [
     });
 
     await user.save();
-    console.log('User created successfully:', user._id);
+
 
     // Generate JWT token
     const token = jwt.sign(
@@ -150,7 +150,7 @@ router.get('/me', auth, async (req, res) => {
   });
 });
 
-// Search users by username or email - ADDED THIS ENDPOINT
+// Search users by username or email
 router.get('/search', auth, async (req, res) => {
   try {
     const { q } = req.query;
@@ -161,7 +161,7 @@ router.get('/search', auth, async (req, res) => {
       });
     }
 
-    console.log('🔍 Searching users with query:', q);
+
 
     // Search for users by username or email (excluding current user)
     const users = await User.find({
@@ -178,7 +178,7 @@ router.get('/search', auth, async (req, res) => {
       .select('username email _id createdAt publicKey') // Only return necessary fields
       .limit(10); // Limit results
 
-    console.log('✅ Found users:', users.length);
+
 
     res.json(users);
   } catch (error) {
@@ -190,7 +190,7 @@ router.get('/search', auth, async (req, res) => {
   }
 });
 
-// Add this route to your auth.js file
+
 router.get('/health', (req, res) => {
   res.json({
     status: 'ok',

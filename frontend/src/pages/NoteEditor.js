@@ -12,8 +12,8 @@ import {
 import api from '../services/api';
 import { useCrypto } from '../contexts/CryptoContext';
 import { useAuth } from '../contexts/AuthContext';
-import { encryptNote, decryptNote, importEncryptedData } from '../utils/cryptoUtils';
-import axios from 'axios';
+import { encryptNote, decryptNote } from '../utils/cryptoUtils';
+
 
 const NoteEditor = () => {
   const { id } = useParams();
@@ -57,59 +57,35 @@ const NoteEditor = () => {
   const { masterKey, setMasterKey, encrypt, decrypt, deriveKeyFromPassword, encryptWithPublicKey, decryptWithPrivateKey, privateKey, setPrivateKey } = useCrypto();
   const { user, isAuthenticated, logout, loading: authLoading } = useAuth();
 
-  // ========== CRITICAL DEBUGGING ==========
-  useEffect(() => {
-    console.log('=== URL DEBUGGING ===');
-    console.log('useParams() id:', id);
-    console.log('Type of id:', typeof id);
-    console.log('isNewNote calculation:', id === 'new' || id === undefined);
-    console.log('Window location pathname:', window.location.pathname);
-    console.log('Window location href:', window.location.href);
-    console.log('useLocation() pathname:', location.pathname);
-    console.log('useLocation() search:', location.search);
-    console.log('useLocation() state:', location.state);
 
-    // If id is undefined but URL is /note/new, fix it manually
-    if (id === undefined && window.location.pathname === '/note/new') {
-      console.log('⚠️ FIXING: id is undefined but URL is /note/new');
-      console.log('✅ Manually treating as new note');
-    }
 
-    // Check route params more carefully
-    const pathParts = window.location.pathname.split('/');
-    console.log('Path parts:', pathParts);
-    console.log('Expected note ID from path:', pathParts[2]);
-  }, [id, location]);
 
-  // ========== ROUTING FIX ==========
-  // If id is undefined, check if we should be at /note/new
   useEffect(() => {
     if (id === undefined) {
-      console.log('⚠️ NoteEditor: id is undefined from useParams()');
-      console.log('🔍 Checking current URL:', window.location.pathname);
+
 
       const pathParts = window.location.pathname.split('/');
       const lastPart = pathParts[pathParts.length - 1];
 
-      console.log('Last part of URL:', lastPart);
+
 
       // If we're at /note (without an ID), redirect to /note/new
       if (window.location.pathname === '/note') {
-        console.log('🔍 Found /note without ID, redirecting to /note/new');
+
         navigate('/note/new', { state: location.state || {} });
         return;
       }
 
       // If we're at /note/ but the ID is empty
       if (lastPart === '' && pathParts[pathParts.length - 2] === 'note') {
-        console.log('🔍 Found /note/ (trailing slash), redirecting to /note/new');
+
         navigate('/note/new', { state: location.state || {} });
         return;
       }
 
       // If we're at /note/new but id is undefined (shouldn't happen with proper routing)
       if (window.location.pathname === '/note/new') {
-        console.log('✅ Already at /note/new, continuing with new note creation');
+
         // This is okay, we'll treat it as a new note
       }
     }
@@ -117,113 +93,63 @@ const NoteEditor = () => {
 
   // Handle prefilled data for new notes - UPDATED
   useEffect(() => {
-    console.log('🔍 NoteEditor: Checking for prefilled data...');
-    console.log('🔍 isNewNote:', isNewNote);
-    console.log('🔍 location.state:', location.state);
+
 
     if (isNewNote) {
       if (location.state) {
-        console.log('🔍 NoteEditor: Received prefilled data from Dashboard:', location.state);
+
 
         // Only set title if it's not already set
         if (location.state.prefillTitle && !title) {
-          console.log('🔍 Setting title to:', location.state.prefillTitle);
+
           setTitle(location.state.prefillTitle);
         }
 
         if (location.state.prefillTags && location.state.prefillTags.length > 0 && !tags) {
-          console.log('🔍 Setting tags to:', location.state.prefillTags);
+
           setTags(location.state.prefillTags.join(', '));
         }
 
         // Handle encryption if needed
         if (location.state.shouldEncrypt && !masterKey && location.state.encryptionPassword) {
-          console.log('🔍 Note should be encrypted, setting master key...');
+
           try {
             const derivedKey = deriveKeyFromPassword(location.state.encryptionPassword, 'master-salt');
             // In a real app, you would set this in the crypto context
-            console.log('🔍 Derived key created');
+
             alert('Encryption enabled for this note');
           } catch (error) {
             console.error('Failed to set encryption key:', error);
           }
         }
       } else {
-        console.log('🔍 No prefilled data found - creating empty note');
+
       }
     }
   }, [isNewNote, location.state, masterKey]);
 
-  // Add debugging to see what's happening
-  useEffect(() => {
-    console.log('🔍 DEBUG - Current component state:');
-    console.log('  Title:', title);
-    console.log('  Tags:', tags);
-    console.log('  Content length:', content.length);
-    console.log('  isNewNote:', isNewNote);
-    console.log('  Note ID from URL:', id);
-    console.log('  Full URL:', window.location.href);
-    console.log('  Location state:', location.state);
-
-    // Check if we're on the wrong URL
-    if (id !== 'new' && id !== undefined && !/^[0-9a-fA-F]{24}$/.test(id)) {
-      console.error('❌ ERROR: Invalid note ID in URL! Expected "new" or valid ObjectId');
-      console.error('❌ Current ID:', id);
-      alert(`Wrong URL! You should be at /note/new but you're at /note/${id}\n\nGo back and create a note again.`);
-    }
-  }, [title, tags, content, isNewNote, id, location.state]);
-
-  // Debug: Log authentication state
-  useEffect(() => {
-    console.log('🔍 NoteEditor: Component mounted');
-    console.log('🔍 NoteEditor: isAuthenticated:', isAuthenticated);
-    console.log('🔍 NoteEditor: User:', user);
-    console.log('🔍 NoteEditor: User ID:', user?._id);
-    console.log('🔍 NoteEditor: Token in localStorage:', localStorage.getItem('token') ? 'Present' : 'Missing');
-    console.log('🔍 NoteEditor: Auth loading:', authLoading);
-    console.log('🔍 NoteEditor: Note ID from URL:', id);
-    console.log('🔍 NoteEditor: Is new note?', isNewNote);
-    console.log('🔍 NoteEditor: Note ID type:', typeof id);
-    console.log('🔍 NoteEditor: Note ID value:', JSON.stringify(id));
-
-    // Check axios headers
-    console.log('🔍 NoteEditor: Axios headers:', axios.defaults.headers.common);
-
-    // Update debug info
 
 
-    // Check backend status
 
-  }, [isAuthenticated, user, authLoading, id, isNewNote]);
 
   useEffect(() => {
     // Debug: Show current state
-    console.log('=== NOTE EDITOR AUTH CHECK ===');
-    console.log('authLoading:', authLoading);
-    console.log('isAuthenticated:', isAuthenticated);
-    console.log('isNewNote:', isNewNote);
-    console.log('Note ID:', id);
-    console.log('Note ID type:', typeof id);
+
 
     // Wait for auth to finish loading
     if (authLoading) {
-      console.log('🔍 NoteEditor: Auth still loading, waiting...');
+
       return;
     }
 
     // Check authentication
     if (!isAuthenticated) {
-      console.log('🔍 NoteEditor: User not authenticated, redirecting to login');
+
       setError('Please log in to create or edit notes');
       navigate('/login');
       return;
     }
 
-    console.log('🔍 NoteEditor: User authenticated, proceeding...');
-    console.log('🔍 NoteEditor: User details:', {
-      id: user?._id,
-      email: user?.email
-    });
 
     if (!isNewNote) {
       fetchNote();
@@ -263,8 +189,7 @@ const NoteEditor = () => {
       setError('');
 
 
-      console.log('🔍 NoteEditor: Fetching note with ID:', id);
-      console.log('🔍 NoteEditor: User ID:', user?._id);
+
 
       // Check if ID is literally "undefined" string
       if (id === "undefined") {
@@ -283,10 +208,10 @@ const NoteEditor = () => {
         throw new Error(errorMsg);
       }
 
-      console.log('🔍 NoteEditor: Using api.getNote() service...');
+
 
       const response = await api.getNote(id);
-      console.log('🔍 NoteEditor: Note fetched successfully:', response.data);
+
 
       const note = response.data;
 
@@ -299,14 +224,7 @@ const NoteEditor = () => {
         throw new Error(errorMsg);
       }
 
-      console.log('🔍 NoteEditor: Note details:', {
-        id: note._id,
-        title: note.title,
-        ownerId: note.ownerId,
-        hasContent: !!note.content,
-        isEncrypted: note.isEncrypted,
-        tagsCount: note.tags?.length || 0
-      });
+
 
       setTitle(note.title || '');
       setTags(note.tags?.join(', ') || '');
@@ -320,25 +238,21 @@ const NoteEditor = () => {
       if (masterKey && note.isEncrypted && note.encryptionMetadata) {
 
         try {
-          console.log('🔍 NoteEditor: Attempting to decrypt note content');
+
           let noteKey = masterKey;
 
           // If this is a shared note (and we are not the owner), we need to get the specific note key
-          console.log('🔍 NoteEditor: Ownership check:', {
-            isOwner: isNoteOwner,
-            ownerIdStr,
-            userIdStr
-          });
+
 
           if (!isNoteOwner) {
-            console.log('🔍 Shared note detected. Trying to retrieve share key...');
+
             try {
               // 1. Check localStorage first (cached from Dashboard)
               const cachedKeyData = localStorage.getItem(`share_key_${id}`);
               if (cachedKeyData) {
                 try {
                   const { encryptedKey } = JSON.parse(cachedKeyData);
-                  console.log('🔍 Found cached share key, decrypting...');
+
 
                   let privateKeyPEM = privateKey;
                   if (!privateKeyPEM) {
@@ -346,7 +260,7 @@ const NoteEditor = () => {
                   }
 
                   noteKey = await decryptWithPrivateKey(encryptedKey, privateKeyPEM);
-                  console.log('✅ Shared note key decrypted from cache');
+
                 } catch (cacheErr) {
                   console.warn('⚠️ Cached key decryption failed:', cacheErr.message);
                   // Continue to fetch from API
@@ -362,7 +276,7 @@ const NoteEditor = () => {
                   throw new Error('Encryption keys are required. Please log in again.');
                 }
 
-                console.log('🔍 Fetching share key from API...');
+
                 let shareKeyRes;
                 try {
                   const ownerId = note.ownerId?._id || note.ownerId;
@@ -372,9 +286,9 @@ const NoteEditor = () => {
                   shareKeyRes = await api.getShareKey(id, 'any');
                 }
 
-                console.log('🔍 Decrypting share key from API...');
+
                 noteKey = await decryptWithPrivateKey(shareKeyRes.data.encryptedKey, privateKeyPEM);
-                console.log('✅ Shared note key decrypted from API');
+
               }
             } catch (shareErr) {
               console.error('❌ Failed to retrieve shared note key:', shareErr);
@@ -389,7 +303,7 @@ const NoteEditor = () => {
           );
           setContent(decryptedContent);
           setSessionNoteKey(noteKey); // Store the key for later use (like sharing)
-          console.log('✅ NoteEditor: Note decrypted successfully');
+
         } catch (decryptError) {
           console.error('🔍 NoteEditor: Decryption failed:', decryptError);
           setError('Decryption Error: ' + decryptError.message);
@@ -418,7 +332,7 @@ const NoteEditor = () => {
       const userShare = note.sharedWith?.find(s => String(s.userId?._id || s.userId) === String(currentUserId));
       const hasWritePermission = isNoteOwner || (userShare && userShare.permission === 'write');
       setCanEdit(hasWritePermission);
-      console.log('🔍 NoteEditor: Permissions:', { isNoteOwner, hasWritePermission, currentUserId });
+
     } catch (error) {
       console.error('🔍 NoteEditor: Failed to fetch note:', {
         message: error.message,
@@ -464,7 +378,7 @@ const NoteEditor = () => {
 
       // Decrypt versions if note is encrypted
       if (sessionNoteKey) {
-        console.log('🔍 Decrypting note versions...');
+
         noteVersions = noteVersions.map(version => {
           try {
             if (version.isEncrypted && version.encryptionMetadata?.iv) {
@@ -491,9 +405,9 @@ const NoteEditor = () => {
   };
 
 
-  // MISSING FUNCTION: Add this to fix the error
+
   const openShareModal = () => {
-    console.log('🔍 Opening share modal for note:', id);
+
     setShowShareModal(true);
     setSearchQuery('');
     setSearchResults([]);
@@ -518,10 +432,10 @@ const NoteEditor = () => {
     setSharingError('');
 
     try {
-      console.log('🔍 Searching users with query:', queryTrimmed);
+
 
       const response = await api.searchUsers(queryTrimmed);
-      console.log('✅ Search results:', response.data);
+
 
       // Filter out users already selected or already shared with
       const filteredResults = response.data.filter(user =>
@@ -573,7 +487,7 @@ const NoteEditor = () => {
       setSharingError('');
 
       const response = await api.removeShare(id, userId);
-      console.log('✅ Share removed:', response.data);
+
 
       // Update local state
       setSharedWith(sharedWith.filter(share => share.userId !== userId));
@@ -604,7 +518,7 @@ const NoteEditor = () => {
     setSharingSuccess('');
 
     try {
-      console.log('🔍 Sharing note with users:', selectedUsers);
+
 
       // For each selected user, share the note
       const sharePromises = selectedUsers.map(async (user) => {
@@ -632,17 +546,17 @@ const NoteEditor = () => {
               throw new Error(`User ${user.username} has not set up valid encryption keys yet.`);
             }
 
-            console.log(`🔐 Encrypting key for user ${user.username}...`);
+
 
             // 2. Encrypt the sessionNoteKey (or masterKey if owner) with the recipient's public key
             // For owner, sessionNoteKey might be null before first save, so use masterKey
             const keyToShare = sessionNoteKey || masterKey;
             const encryptedKey = await encryptWithPublicKey(keyToShare, user.publicKey);
 
-            console.log('✅ Key encrypted, sending share request...');
+
 
             shareData.encryptedKey = encryptedKey;
-            console.log(`✅ Key encrypted for ${user.username}`);
+
           } catch (err) {
             console.error(`Failed to encrypt key for ${user.username}:`, err);
             throw new Error(`Failed to encrypt key for ${user.username}`);
@@ -653,7 +567,7 @@ const NoteEditor = () => {
       });
 
       const results = await Promise.all(sharePromises);
-      console.log('✅ Share results:', results);
+
 
       // Add to sharedWith list
       const newSharedUsers = selectedUsers.map((user, index) => ({
@@ -695,9 +609,9 @@ const NoteEditor = () => {
     if (!id || isNewNote) return;
 
     try {
-      console.log('🔍 Fetching shared users for note:', id);
+
       const response = await api.getNoteSharedWith(id);
-      console.log('✅ Shared with:', response.data);
+
       setSharedWith(response.data);
     } catch (error) {
       console.error('❌ Failed to fetch shared users:', error);
@@ -718,11 +632,7 @@ const NoteEditor = () => {
 
   // UPDATED save function
   const handleSave = async () => {
-    console.log('🔍 NoteEditor: Save button clicked');
-    console.log('🔍 Current title:', title);
-    console.log('🔍 Current content length:', content.length);
-    console.log('🔍 isNewNote:', isNewNote);
-    console.log('🔍 id from useParams:', id);
+
 
     if (!title.trim()) {
       setError('Title is required');
@@ -732,7 +642,7 @@ const NoteEditor = () => {
     // Check if we have a token
     const token = localStorage.getItem('token');
     if (!token) {
-      console.log('🔍 NoteEditor: No token found, redirecting to login');
+
       setError('Please log in to save notes');
       navigate('/login');
       return;
@@ -753,12 +663,7 @@ const NoteEditor = () => {
         isEncrypted: !!masterKey
       };
 
-      console.log('🔍 NoteEditor: Note data to save:', {
-        title: noteData.title,
-        tagsCount: noteData.tags.length,
-        hasContent: !!content,
-        isEncrypted: noteData.isEncrypted
-      });
+
 
       // Encrypt content if we have master key
       // Enforce mandatory encryption
@@ -770,7 +675,7 @@ const NoteEditor = () => {
 
       if (content) {
         try {
-          console.log('🔍 NoteEditor: Encrypting content...');
+
 
           // CRITICAL SAFETY CHECK: If this is a shared note, we MUST have the sessionNoteKey
           if (!isNewNote && !isOwner && !sessionNoteKey) {
@@ -787,7 +692,7 @@ const NoteEditor = () => {
             iv: encrypted.iv,
             salt: encrypted.salt
           };
-          console.log('🔍 NoteEditor: Content encrypted successfully');
+
         } catch (encryptError) {
           console.error('🔍 NoteEditor: Encryption error:', encryptError);
           setError('Failed to encrypt note. Cannot save unencrypted data.');
@@ -799,21 +704,21 @@ const NoteEditor = () => {
         noteData.content = '';
       }
 
-      console.log('🔍 NoteEditor: Sending note data to API...');
+
 
       let response;
       if (isNewNote) {
-        console.log('🔍 Creating new note via API...');
+
         response = await api.createNote(noteData);
-        console.log('🔍 NoteEditor: Create response:', response.data);
+
       } else {
-        console.log('🔍 Updating existing note via API...');
+
         response = await api.updateNote(id, noteData);
-        console.log('🔍 NoteEditor: Update response:', response.data);
+
       }
 
       if (response.data && response.data.id) {
-        console.log('✅ Note saved successfully! ID:', response.data.id);
+
         alert('✅ Note saved successfully!');
 
         if (isNewNote) {

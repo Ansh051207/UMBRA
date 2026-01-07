@@ -27,10 +27,7 @@ export const CryptoProvider = ({ children }) => {
     setPrivateKeyState(key);
   };
 
-  // Generate a random key
-  const generateKey = useCallback(() => {
-    return CryptoJS.lib.WordArray.random(32).toString();
-  }, []);
+
 
   // Derive encryption key from password
   const deriveKeyFromPassword = useCallback((password, salt) => {
@@ -122,7 +119,7 @@ export const CryptoProvider = ({ children }) => {
       .replace(/\s/g, '');
 
     try {
-      console.log(`🔍 Crypto: Importing ${type} key, base64 length:`, base64.length);
+
       const binaryDer = base64ToArrayBuffer(base64);
       return await window.crypto.subtle.importKey(
         type === 'public' ? 'spki' : 'pkcs8',
@@ -217,7 +214,7 @@ export const CryptoProvider = ({ children }) => {
     setMasterKey,
     privateKey,
     setPrivateKey,
-    generateKey,
+
     deriveKeyFromPassword,
     encrypt,
     decrypt,

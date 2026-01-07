@@ -64,7 +64,7 @@ const Register = () => {
       // 1. Generate keys in background if not already generated
       let keys = generatedKeys;
       if (!keys) {
-        console.log('🔍 Generating encryption keys in background...');
+
         const keyPair = await generateRSAKeyPair();
         keys = {
           publicKey: keyPair.publicKey,
@@ -83,7 +83,7 @@ const Register = () => {
         encryptedPrivateKey: JSON.stringify(exportEncryptedData(keys.privateKey, formData.password))
       };
 
-      console.log('🔍 Submitting registration data...');
+
       const result = await register(userData);
 
       if (result.success) {
@@ -92,7 +92,7 @@ const Register = () => {
           const derivedKey = deriveKeyFromPassword(formData.password, 'master-salt');
           setMasterKey(derivedKey);
           setPrivateKey(keys.privateKey);
-          console.log('✅ Master key and private key auto-set after registration');
+
         } catch (err) {
           console.error('Failed to auto-set master key:', err);
         }

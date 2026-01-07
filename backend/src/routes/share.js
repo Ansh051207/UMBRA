@@ -16,14 +16,14 @@ router.post('/:noteId', auth, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('Validation errors:', errors.array());
+
       return res.status(400).json({ errors: errors.array() });
     }
 
     const { noteId } = req.params;
     const { userId, permission, encryptedKey } = req.body;
 
-    console.log(`🔍 Attempting to share note ${noteId} with user ${userId}`);
+
 
     // Check if note exists and user is owner
     const note = await Note.findOne({
@@ -35,7 +35,7 @@ router.post('/:noteId', auth, [
     });
 
     if (!note) {
-      console.log(`❌ Note ${noteId} not found or user ${req.user._id} is not owner`);
+
       return res.status(404).json({
         error: 'Note not found or you are not the owner'
       });
@@ -44,7 +44,7 @@ router.post('/:noteId', auth, [
     // Check if target user exists
     const targetUser = await User.findById(userId);
     if (!targetUser) {
-      console.log(`❌ Target user ${userId} not found`);
+
       return res.status(404).json({ error: 'User not found' });
     }
 
@@ -62,7 +62,7 @@ router.post('/:noteId', auth, [
       // Update existing share
       note.sharedWith[existingShareIndex].permission = permission;
       note.sharedWith[existingShareIndex].sharedAt = new Date();
-      console.log(`✅ Updated existing share for user ${userId}`);
+
     } else {
       // Add new share
       note.sharedWith.push({
@@ -71,7 +71,7 @@ router.post('/:noteId', auth, [
         sharedAt: new Date(),
         sharedBy: req.user._id
       });
-      console.log(`✅ Added new share for user ${userId}`);
+
     }
 
     // Save share key if encrypted key provided (for encrypted notes)
@@ -91,7 +91,7 @@ router.post('/:noteId', auth, [
         },
         { upsert: true, new: true }
       );
-      console.log(`✅ Saved/updated share key for encrypted note`);
+
     }
 
     await note.save();
@@ -186,7 +186,7 @@ router.delete('/:noteId/:userId', auth, async (req, res) => {
   try {
     const { noteId, userId } = req.params;
 
-    console.log(`🔍 Attempting to remove share of note ${noteId} with user ${userId}`);
+
 
     const note = await Note.findOne({
       _id: noteId,
@@ -238,7 +238,7 @@ router.delete('/:noteId/:userId', auth, async (req, res) => {
 
     await note.save();
 
-    console.log(`✅ Successfully removed share of note ${noteId} with user ${userId}`);
+
 
     res.json({
       message: 'Share removed successfully',

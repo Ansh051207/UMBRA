@@ -15,7 +15,7 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    console.log(' API Request:', config.method?.toUpperCase(), config.url);
+
     return config;
   },
   (error) => {
@@ -27,7 +27,7 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
-    console.log(' API Response:', response.status, response.config.url);
+
     return response;
   },
   (error) => {
@@ -38,19 +38,19 @@ api.interceptors.response.use(
       data: error.response?.data,
       message: error.message
     });
-    
+
     // Handle 401 Unauthorized
     if (error.response?.status === 401) {
-      console.log(' API: Got 401, clearing token');
+
       localStorage.removeItem('token');
       delete api.defaults.headers.common['Authorization'];
-      
+
       // Redirect to login if not already there
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -65,18 +65,18 @@ export default {
   deleteNote: (id) => api.delete(`/notes/${id}`),
   getNoteVersions: (id) => api.get(`/notes/${id}/versions`),
   restoreVersion: (id, version) => api.post(`/notes/${id}/restore/${version}`),
-  
-  // NEW: Get users a note is shared with - CORRECTED ENDPOINT
+
+  // Shares
   getNoteSharedWith: (id) => api.get(`/share/${id}/shares`),
 
-  // Sharing - CORRECTED ENDPOINTS
+  // Sharing
   shareNote: (noteId, shareData) => api.post(`/share/${noteId}`, shareData),
   getSharedNotes: () => api.get('/share/shared-with-me'),
   getShareKey: (noteId, fromUserId) => api.get(`/share/key/${noteId}/${fromUserId}`),
   removeShare: (noteId, userId) => api.delete(`/share/${noteId}/${userId}`),
-  
-  // Note: getNoteShares endpoint removed (duplicate of getNoteSharedWith)
 
-  // Users - NEW ENDPOINT NEEDED
+
+
+  // Users
   searchUsers: (query) => api.get(`/users/search?q=${encodeURIComponent(query)}`)
 };

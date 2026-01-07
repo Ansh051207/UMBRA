@@ -28,7 +28,7 @@ const Login = () => {
         // 1. Derive Master Key
         const derivedKey = deriveKeyFromPassword(password, 'master-salt');
         setMasterKey(derivedKey);
-        console.log('✅ Master key derived from login password');
+
 
         // 2. Decrypt Private Key if available
         if (result.user && result.user.encryptedPrivateKey) {
@@ -36,7 +36,7 @@ const Login = () => {
             const encryptedKP = JSON.parse(result.user.encryptedPrivateKey);
             const privateKeyPEM = importEncryptedData(encryptedKP, password);
             setPrivateKey(privateKeyPEM);
-            console.log('✅ Private key decrypted and cached');
+
           } catch (pkError) {
             console.warn('Failed to decrypt private key with login password:', pkError);
           }

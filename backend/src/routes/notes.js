@@ -2,7 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Note = require('../models/Note');
 const auth = require('../middleware/auth');
-const User = require('../models/User'); // ADD THIS
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -44,7 +44,7 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// Create new note - FIXED: Content is now optional
+// Create new note
 router.post('/', auth, [
   body('title').trim().notEmpty(),
   body('content').optional(),
@@ -85,7 +85,7 @@ router.post('/', auth, [
   }
 });
 
-// Update note - FIXED: Content is now optional
+// Update note
 router.put('/:id', auth, [
   body('title').optional().trim().notEmpty(),
   body('content').optional(),
@@ -94,7 +94,7 @@ router.put('/:id', auth, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('Validation errors:', errors.array());
+
       return res.status(400).json({ errors: errors.array() });
     }
 
@@ -254,7 +254,7 @@ router.post('/:id/restore/:version', auth, async (req, res) => {
   }
 });
 
-// NEW ENDPOINT: Get users a note is shared with
+// Get users a note is shared with
 router.get('/:id/shared-with', auth, async (req, res) => {
   try {
     const note = await Note.findOne({
